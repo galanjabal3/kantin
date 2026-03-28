@@ -9,4 +9,3 @@ Multi-tenant food ordering platform.
 - Backend: FastAPI, SQLAlchemy, PostgreSQL (Supabase)
 - Frontend: React, Vite, TailwindCSS, Zustand
 - Auth: JWT
-- OTP: Fonnte (WhatsApp)
