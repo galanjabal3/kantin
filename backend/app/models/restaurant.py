@@ -21,6 +21,8 @@ class Restaurant(Base):
     mode = Column(Enum(RestaurantMode), default=RestaurantMode.full)
     is_active = Column(Boolean, default=True)
     is_open = Column(Boolean, default=True)
+    require_otp = Column(Boolean, default=False)
+    enable_table_number = Column(Boolean, default=False)
 
     # Relationships
     seller = relationship("Seller", back_populates="restaurant", uselist=False)

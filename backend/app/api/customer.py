@@ -87,7 +87,9 @@ def create_order(
     order = Order(
         id=str(uuid.uuid4()),
         restaurant_id=restaurant.id,
+        customer_id=data.customer_id,
         customer_name=data.customer_name,
+        table_number=data.table_number,
         total_price=total,
         source=OrderSource.customer,
     )

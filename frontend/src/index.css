@@ -14,3 +14,10 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+
+/* hide arrow number input */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
