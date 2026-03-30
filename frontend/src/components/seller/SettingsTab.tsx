@@ -1,4 +1,5 @@
 import { useState } from "react";
+import toast from "react-hot-toast";
 
 interface Restaurant {
   id: string;
@@ -24,11 +25,9 @@ export default function SettingsTab({
   onUpdate,
 }: SettingsTabProps) {
   const [saving, setSaving] = useState(false);
-  const [success, setSuccess] = useState(false);
 
   const updateSetting = async (field: string, value: boolean) => {
     setSaving(true);
-    setSuccess(false);
     try {
       await fetch(`${BASE_URL}/api/seller/me`, {
         method: "PUT",
@@ -39,10 +38,9 @@ export default function SettingsTab({
         body: JSON.stringify({ [field]: value }),
       });
       onUpdate();
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 2000);
+      setTimeout(() => toast.success("Pengaturan tersimpan!"), 500);
     } catch {
-      alert("Gagal menyimpan pengaturan");
+      toast.error("Gagal menyimpan pengaturan");
     } finally {
       setSaving(false);
     }
@@ -79,12 +77,6 @@ export default function SettingsTab({
 
   return (
     <div className="flex flex-col gap-4 max-w-lg">
-      {success && (
-        <div className="bg-green-50 border border-green-200 text-green-600 text-sm rounded-lg px-4 py-3">
-          Pengaturan tersimpan!
-        </div>
-      )}
-
       {/* URL Info */}
       <div className="bg-white border border-gray-100 rounded-xl p-5">
         <p className="text-sm font-medium text-gray-900 mb-3">Info restoran</p>

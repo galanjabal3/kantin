@@ -7,6 +7,8 @@ import {
   deleteMenuItem,
   createCategory,
 } from "../../lib/api";
+import { Skeleton } from "../../components/shared/Skeleton";
+import toast from "react-hot-toast";
 
 interface Category {
   id: string;
@@ -97,10 +99,13 @@ export default function MenuTab({ token }: { token: string }) {
       } else {
         await createMenuItem(token, form);
       }
+      toast.success(
+        editItem ? "Menu berhasil diupdate!" : "Menu berhasil ditambahkan!",
+      );
       setShowForm(false);
       fetchAll();
     } catch {
-      alert("Gagal menyimpan menu");
+      toast.error("Gagal menyimpan menu");
     } finally {
       setSubmitting(false);
     }
@@ -110,9 +115,10 @@ export default function MenuTab({ token }: { token: string }) {
     if (!confirm("Hapus menu ini?")) return;
     try {
       await deleteMenuItem(token, id);
+      toast.success("Menu berhasil dihapus!");
       fetchAll();
     } catch {
-      alert("Gagal menghapus menu");
+      toast.error("Gagal menghapus menu");
     }
   };
 
@@ -121,10 +127,11 @@ export default function MenuTab({ token }: { token: string }) {
     if (!newCategory.trim()) return;
     try {
       await createCategory(token, newCategory.trim());
+      toast.success("Kategori berhasil ditambahkan!");
       setNewCategory("");
       fetchAll();
     } catch {
-      alert("Gagal menambah kategori");
+      toast.error("Gagal menambah kategori!");
     }
   };
 
@@ -133,16 +140,42 @@ export default function MenuTab({ token }: { token: string }) {
       await updateMenuItem(token, item.id, {
         is_available: !item.is_available,
       });
+      toast.success(
+        item.is_available ? "Menu dinonaktifkan" : "Menu diaktifkan",
+      );
       fetchAll();
     } catch {
-      alert("Gagal mengupdate status");
+      toast.error("Gagal mengupdate status");
     }
   };
 
   if (loading)
     return (
-      <div className="text-center py-12 text-gray-400 text-sm">
-        Memuat menu...
+      <div className="flex flex-col gap-6">
+        <div className="bg-white border border-gray-100 rounded-xl p-5">
+          <Skeleton className="h-4 w-20 mb-3" />
+          <div className="flex gap-2">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-7 w-20 rounded-full" />
+            ))}
+          </div>
+        </div>
+        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div
+              key={i}
+              className="flex items-center gap-4 px-6 py-4 border-b border-gray-50"
+            >
+              <Skeleton className="w-10 h-10 rounded-lg flex-shrink-0" />
+              <div className="flex-1 flex flex-col gap-2">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-6 w-16 rounded-full" />
+            </div>
+          ))}
+        </div>
       </div>
     );
 
@@ -311,13 +344,61 @@ export default function MenuTab({ token }: { token: string }) {
         </div>
       )}
 
+      {/* Mobile: card list, Desktop: table */}
+      <div className="block md:hidden">
+        {menu.map((item) => (
+          <div
+            key={item.id}
+            className="bg-white border border-gray-100 rounded-xl p-4 mb-3 flex items-center gap-3"
+          >
+            {item.image_url ? (
+              <img
+                src={item.image_url}
+                alt={item.name}
+                className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-lg bg-gray-100 flex-shrink-0" />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {item.name}
+              </p>
+              <p className="text-xs text-gray-400">
+                {item.category?.name || "—"} · {formatPrice(item.price)}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => handleToggleAvailable(item)}
+                className={`text-xs px-2 py-1 rounded-full font-medium ${
+                  item.is_available
+                    ? "bg-green-50 text-green-600"
+                    : "bg-red-50 text-red-500"
+                }`}
+              >
+                {item.is_available ? "Ada" : "Habis"}
+              </button>
+              <button
+                onClick={() => handleOpenEdit(item)}
+                className="text-xs text-gray-400 hover:text-gray-600"
+              >
+                Edit
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* Menu list */}
+      {/* Desktop: table */}
       {menu.length === 0 ? (
         <div className="bg-white border border-gray-100 rounded-xl py-12 text-center text-gray-400 text-sm">
           Belum ada menu — tambahkan menu pertama kamu!
         </div>
       ) : (
-        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        <div className="hidden md:block bg-white border border-gray-100 rounded-xl overflow-hidden">
+          {/* <div className="bg-white border border-gray-100 rounded-xl overflow-hidden"> */}
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">

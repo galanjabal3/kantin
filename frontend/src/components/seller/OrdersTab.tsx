@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { getSellerOrders, updateOrderStatus } from "../../lib/api";
 import { formatSmartTime, isToday } from "../../utils/formatTime";
+import { Skeleton } from "../../components/shared/Skeleton";
+import { useOrderNotification } from "../../hooks/useOrderNotification";
+import toast from "react-hot-toast";
 
 interface OrderItem {
   id: string;
@@ -55,6 +58,9 @@ export default function OrdersTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
   const [showOldOrders, setShowOldOrders] = useState(false);
 
+  // Aktifkan notifikasi — hanya setelah data pertama loaded
+  useOrderNotification(orders, !loading);
+
   const fetchOrders = useCallback(async () => {
     try {
       const data = await getSellerOrders(token);
@@ -76,9 +82,10 @@ export default function OrdersTab({ token }: { token: string }) {
   const handleUpdateStatus = async (orderId: string, newStatus: string) => {
     try {
       await updateOrderStatus(token, orderId, newStatus);
+      toast.success(`Status diupdate: ${STATUS_LABEL[newStatus]}`);
       fetchOrders();
     } catch {
-      alert("Gagal mengupdate status");
+      toast.error("Gagal mengupdate status");
     }
   };
 
@@ -91,8 +98,35 @@ export default function OrdersTab({ token }: { token: string }) {
 
   if (loading)
     return (
-      <div className="text-center py-12 text-gray-400 text-sm">
-        Memuat orders...
+      <div className="flex flex-col gap-6">
+        {/* Stats skeleton */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="bg-white border border-gray-100 rounded-xl p-4"
+            >
+              <Skeleton className="h-3 w-16 mb-2" />
+              <Skeleton className="h-8 w-10" />
+            </div>
+          ))}
+        </div>
+
+        {/* Orders skeleton */}
+        <div className="flex flex-col gap-3">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="bg-white border border-gray-100 rounded-xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3"
+            >
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-40 md:w-48" />
+              </div>
+              <Skeleton className="h-8 w-20 rounded-lg self-end md:self-auto" />
+            </div>
+          ))}
+        </div>
       </div>
     );
 
@@ -114,7 +148,8 @@ export default function OrdersTab({ token }: { token: string }) {
   return (
     <div className="flex flex-col gap-6">
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      {/* <div className="grid grid-cols-4 gap-4"> */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         {[
           { label: "Total hari ini", value: todayOrders.length },
           {
@@ -150,7 +185,8 @@ export default function OrdersTab({ token }: { token: string }) {
           {activeOrders.map((order) => (
             <div
               key={order.id}
-              className="bg-white border border-gray-100 rounded-xl p-5 flex items-center justify-between gap-4"
+              // className="bg-white border border-gray-100 rounded-xl p-5 flex items-center justify-between gap-4"
+              className="bg-white border border-gray-100 rounded-xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3"
             >
               <div className="flex items-center gap-4 min-w-0">
                 <div>

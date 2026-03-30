@@ -8,7 +8,6 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
-    FONNTE_TOKEN: str = ""
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     ADMIN_EMAIL: str = "admin@kantin.com"
     ADMIN_PASSWORD: str = "Admin123!"

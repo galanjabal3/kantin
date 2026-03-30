@@ -29,6 +29,9 @@ export default function SellerDashboard() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("orders");
   const [loading, setLoading] = useState(true);
+  const [notifPermission, setNotifPermission] = useState(
+    Notification.permission,
+  );
 
   useEffect(() => {
     if (!token || userType !== "seller") {
@@ -80,25 +83,29 @@ export default function SellerDashboard() {
     t.showOn.includes(restaurant?.mode || "full"),
   );
 
+  const requestNotifPermission = async () => {
+    const result = await Notification.requestPermission();
+    setNotifPermission(result);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-100 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
-              <span className="text-white text-sm font-bold">K</span>
-            </div>
-            <div>
-              <h1 className="text-sm font-medium text-gray-900">
+      <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-3 md:py-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <img src="/logo.svg" alt="Kantin" className="w-8 h-8 shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-sm font-medium text-gray-900 truncate">
                 {restaurant?.name}
               </h1>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-400 truncate hidden sm:block">
                 kantin.app/r/{restaurant?.slug}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Status buka/tutup — semua ukuran */}
             <span
               className={`text-xs px-2 py-1 rounded-full font-medium ${
                 restaurant?.is_open
@@ -108,25 +115,57 @@ export default function SellerDashboard() {
             >
               {restaurant?.is_open ? "Buka" : "Tutup"}
             </span>
+
+            {/* Notifikasi — icon saja di mobile, teks di desktop */}
+            {notifPermission === "granted" ? (
+              <span className="text-xs bg-green-50 text-green-600 px-2 py-1 rounded-full hidden sm:inline">
+                Notifikasi aktif
+              </span>
+            ) : (
+              <button
+                onClick={requestNotifPermission}
+                className="text-xs bg-amber-50 text-amber-600 border border-amber-200 px-2 py-1 rounded-full whitespace-nowrap"
+                title="Aktifkan notifikasi"
+              >
+                <span className="hidden sm:inline">Aktifkan notifikasi</span>
+                <span className="sm:hidden">🔔</span>
+              </button>
+            )}
+
+            {/* Logout icon */}
             <button
               onClick={handleLogout}
-              className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              className="text-gray-400 hover:text-gray-600 transition-colors p-1.5 rounded-lg hover:bg-gray-100"
+              title="Keluar"
             >
-              Keluar
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white border-b border-gray-100">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="flex gap-1">
+      {/* Tabs — scrollable di mobile */}
+      <div className="bg-white border-b border-gray-100 overflow-x-auto">
+        <div className="max-w-6xl mx-auto px-4 md:px-6">
+          <div className="flex gap-1 min-w-max md:min-w-0">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === tab.id
                     ? "border-brand-500 text-brand-500"
                     : "border-transparent text-gray-500 hover:text-gray-700"

@@ -4,6 +4,7 @@ import {
   getCategories,
   createCashierOrder,
 } from "../../lib/api";
+import toast from "react-hot-toast";
 
 interface Category {
   id: string;
@@ -96,6 +97,7 @@ export default function CashierTab({ token }: { token: string }) {
         source: "cashier",
         items: cart.map((i) => ({ menu_item_id: i.id, quantity: i.quantity })),
       });
+      toast.success("Pesanan berhasil dibuat!");
       setLastOrder({ ...order, cartSnapshot: cart, customerName, tableNumber });
       setCart([]);
       setCustomerName("");
@@ -117,9 +119,9 @@ export default function CashierTab({ token }: { token: string }) {
       document.getElementById("print-size-override")?.remove();
       document.head.appendChild(style);
 
-      setTimeout(() => window.print(), 300);
+      setTimeout(() => window.print(), 3001);
     } catch {
-      alert("Gagal membuat pesanan");
+      toast.error("Gagal membuat pesanan");
     } finally {
       setSubmitting(false);
     }
@@ -222,11 +224,13 @@ export default function CashierTab({ token }: { token: string }) {
       )}
 
       {/* Main layout */}
-      <div className="grid grid-cols-[1fr_320px] gap-6 print:hidden">
+      <div className="flex flex-col lg:grid lg:grid-cols-[1fr_320px] gap-6 print:hidden">
+        {/* <div className="grid grid-cols-[1fr_320px] gap-6 print:hidden"> */}
         {/* Left — Menu grid */}
         <div>
           {/* Category filter */}
-          <div className="flex gap-2 mb-4 flex-wrap">
+          {/* <div className="flex gap-2 mb-4 flex-wrap"> */}
+          <div className="flex gap-2 mb-4 overflow-x-auto pb-1 flex-nowrap">
             <button
               onClick={() => setActiveCategory("all")}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
@@ -253,30 +257,32 @@ export default function CashierTab({ token }: { token: string }) {
           </div>
 
           {/* Menu grid */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="flex flex-col gap-2 lg:grid lg:grid-cols-3 lg:gap-3">
             {filteredMenu.map((item) => (
               <button
                 key={item.id}
                 onClick={() => addToCart(item)}
-                className="bg-white border border-gray-100 rounded-xl p-4 text-left hover:border-brand-300 hover:bg-brand-50 transition-all"
+                className="bg-white border border-gray-100 rounded-xl p-3 text-left hover:border-brand-300 hover:bg-brand-50 transition-all flex items-center gap-3 lg:flex-col lg:items-start lg:p-4"
               >
                 {item.image_url ? (
                   <img
                     src={item.image_url}
                     alt={item.name}
-                    className="w-full h-24 object-cover rounded-lg mb-3"
+                    className="w-14 h-14 lg:w-full lg:h-24 object-cover rounded-lg flex-shrink-0"
                   />
                 ) : (
-                  <div className="w-full h-24 bg-gray-100 rounded-lg mb-3 flex items-center justify-center text-gray-300 text-xs">
+                  <div className="w-14 h-14 lg:w-full lg:h-24 bg-gray-100 rounded-lg flex-shrink-0 flex items-center justify-center text-gray-300 text-xs">
                     foto
                   </div>
                 )}
-                <p className="text-sm font-medium text-gray-900 mb-1">
-                  {item.name}
-                </p>
-                <p className="text-sm text-brand-500 font-medium">
-                  {formatPrice(item.price)}
-                </p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 mb-0.5 line-clamp-2 text-left">
+                    {item.name}
+                  </p>
+                  <p className="text-sm text-brand-500 font-medium">
+                    {formatPrice(item.price)}
+                  </p>
+                </div>
               </button>
             ))}
             {filteredMenu.length === 0 && (
@@ -288,7 +294,7 @@ export default function CashierTab({ token }: { token: string }) {
         </div>
 
         {/* Right — Cart panel */}
-        <div className="bg-white border border-gray-100 rounded-xl p-5 flex flex-col gap-4 h-fit sticky top-6">
+        <div className="bg-white border border-gray-100 rounded-xl p-5 flex flex-col gap-4 lg:h-fit lg:sticky lg:top-6">
           <p className="text-sm font-medium text-gray-900">Pesanan aktif</p>
 
           {cart.length === 0 ? (

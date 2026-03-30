@@ -1,7 +1,9 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { getRestaurant, getMenu, createOrder } from "../lib/api";
 import { useCartStore } from "../store/cartStore";
+import { Skeleton } from "../components/shared/Skeleton";
+import toast from "react-hot-toast";
 
 interface Restaurant {
   id: string;
@@ -43,8 +45,6 @@ export default function CustomerPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [phone, setPhone] = useState("");
-  const [customerId, setCustomerId] = useState<string | null>(null);
   const [tableNumber, setTableNumber] = useState<string>("");
 
   const { items, addItem, updateQuantity, clearCart, total } = useCartStore();
@@ -59,6 +59,7 @@ export default function CustomerPage() {
   useEffect(() => {
     if (!slug) return;
     const fetchData = async () => {
+      setLoading(true);
       try {
         const [restoData, menuData] = await Promise.all([
           getRestaurant(slug),
@@ -139,6 +140,7 @@ export default function CustomerPage() {
         source: "customer",
         items: items.map((i) => ({ menu_item_id: i.id, quantity: i.quantity })),
       });
+      toast.success("Pesanan berhasil dibuat!");
       setOrderId(order.id);
       setOrderStatus(order.status);
       clearCart();
@@ -164,7 +166,7 @@ export default function CustomerPage() {
         JSON.stringify(history.slice(0, 20)),
       );
     } catch {
-      setError("Gagal membuat pesanan, coba lagi");
+      toast.error("Gagal membuat pesanan, coba lagi");
     } finally {
       setSubmitting(false);
     }
@@ -219,13 +221,49 @@ export default function CustomerPage() {
     },
   };
 
-  if (loading) {
+  if (loading)
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-400 text-sm">Memuat...</p>
+      <div className="min-h-screen bg-gray-50">
+        {/* Hero skeleton */}
+        <div className="bg-brand-500 px-6 pt-10 pb-6">
+          <div className="max-w-lg mx-auto">
+            <Skeleton
+              className="w-12 h-12 rounded-xl mb-4"
+              style={{ background: "rgba(255,255,255,0.3)" }}
+            />
+            <Skeleton
+              className="h-7 w-40 mb-2"
+              style={{ background: "rgba(255,255,255,0.3)" }}
+            />
+            <Skeleton
+              className="h-4 w-56"
+              style={{ background: "rgba(255,255,255,0.2)" }}
+            />
+          </div>
+        </div>
+
+        {/* Category skeleton */}
+        <div className="max-w-lg mx-auto flex gap-2 px-4 py-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-7 w-16 rounded-full flex-shrink-0" />
+          ))}
+        </div>
+
+        {/* Menu skeleton */}
+        <div className="max-w-lg mx-auto px-4 flex flex-col gap-3">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white rounded-xl p-4 flex gap-3">
+              <Skeleton className="w-20 h-20 rounded-lg flex-shrink-0" />
+              <div className="flex-1 flex flex-col gap-2 py-1">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-48" />
+                <Skeleton className="h-4 w-16 mt-2" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
-  }
 
   if (error || !restaurant) {
     return (
