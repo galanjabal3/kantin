@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useEffect } from "react";
 import { useAuthStore } from "./store/authStore";
 import { Toaster } from "react-hot-toast";
 
@@ -12,8 +13,15 @@ import LandingPage from "./pages/LandingPage";
 function App() {
   const token = useAuthStore((s) => s.token);
   const userType = useAuthStore((s) => s.userType);
+  const { isTokenExpired, clearAuth } = useAuthStore();
 
   const isAuthenticated = !!token;
+
+  useEffect(() => {
+    if (isTokenExpired()) {
+      clearAuth();
+    }
+  }, []);
 
   // 🔒 Protected (login required)
   const RequireAuth = ({ children }: { children: JSX.Element }) => {
