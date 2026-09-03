@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
-    ADMIN_EMAIL: str = "admin@kantin.com"
-    ADMIN_PASSWORD: str = "Admin123!"
+    ADMIN_EMAIL: str = ""
+    ADMIN_PASSWORD: str = ""
 
     # Parse origins as list when accessed
     @property

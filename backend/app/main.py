@@ -5,7 +5,8 @@ from app.core.database import Base, engine
 from app.api import auth, admin, seller, customer
 import app.models
 
-Base.metadata.create_all(bind=engine)
+if settings.DATABASE_URL:
+    Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title=settings.APP_NAME,
