@@ -12,13 +12,16 @@ import LandingPage from "./pages/LandingPage";
 
 function App() {
   const token = useAuthStore((s) => s.token);
+  const refreshToken = useAuthStore((s) => s.refreshToken);
   const userType = useAuthStore((s) => s.userType);
   const { isTokenExpired, clearAuth } = useAuthStore();
 
   const isAuthenticated = !!token;
 
+  // Access token kedaluwarsa TIDAK berarti sesi habis selama refresh token
+  // masih ada — refresh terjadi otomatis saat request berikutnya (api.ts).
   useEffect(() => {
-    if (isTokenExpired()) {
+    if (token && isTokenExpired() && !refreshToken) {
       clearAuth();
     }
   }, []);
