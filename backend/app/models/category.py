@@ -13,4 +13,9 @@ class Category(Base):
 
     # Relationships
     restaurant = relationship("Restaurant", back_populates="categories")
-    menu_items = relationship("MenuItem", back_populates="category")
+    # TANPA delete-orphan: menu milik kategori tidak boleh ikut terhapus —
+    # bisa saja menu itu punya riwayat order (order_items.menu_item_id NOT NULL).
+    # Saat kategori dihapus, category_id menu di-set NULL (FK nullable).
+    menu_items = relationship(
+        "MenuItem", back_populates="category", cascade="save-update, merge"
+    )

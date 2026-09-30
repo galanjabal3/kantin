@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
@@ -18,7 +18,7 @@ class CategoryResponse(BaseModel):
 class MenuItemCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    price: float
+    price: float = Field(..., gt=0)
     image_url: Optional[str] = None
     category_id: Optional[str] = None
     is_available: bool = True
@@ -27,7 +27,7 @@ class MenuItemCreate(BaseModel):
 class MenuItemUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    price: Optional[float] = None
+    price: Optional[float] = Field(None, gt=0)
     image_url: Optional[str] = None
     category_id: Optional[str] = None
     is_available: Optional[bool] = None

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.core.dependencies import get_current_seller
@@ -11,7 +12,7 @@ from app.schemas.menu import (
     CategoryCreate, CategoryResponse,
     MenuItemCreate, MenuItemUpdate, MenuItemResponse,
 )
-from app.schemas.order import OrderCreate, OrderResponse
+from app.schemas.order import OrderCreate, OrderResponse, MAX_ORDER_TOTAL
 from app.schemas.restaurant import RestaurantResponse, RestaurantUpdate
 from typing import List
 import uuid
@@ -91,6 +92,11 @@ def delete_category(
     db: Session = Depends(get_db),
     current_seller: Seller = Depends(get_current_seller),
 ):
+    """Hapus kategori.
+
+    Menu milik kategori TIDAK ikut terhapus (B11): `category_id` di-set NULL,
+    baris menu dan riwayat order_items tetap utuh.
+    """
     category = db.query(Category).filter(
         Category.id == category_id,
         Category.restaurant_id == current_seller.restaurant_id,
@@ -109,9 +115,15 @@ def get_menu(
     db: Session = Depends(get_db),
     current_seller: Seller = Depends(get_current_seller),
 ):
-    return db.query(MenuItem).filter(
-        MenuItem.restaurant_id == current_seller.restaurant_id
-    ).options(joinedload(MenuItem.category)).all()
+    return (
+        db.query(MenuItem)
+        .filter(
+            MenuItem.restaurant_id == current_seller.restaurant_id,
+            MenuItem.deleted_at.is_(None),  # menu soft-delete tidak tampil
+        )
+        .options(joinedload(MenuItem.category))
+        .all()
+    )
 
 
 @router.post("/menu", response_model=MenuItemResponse)
@@ -141,6 +153,7 @@ def update_menu_item(
     item = db.query(MenuItem).filter(
         MenuItem.id == item_id,
         MenuItem.restaurant_id == current_seller.restaurant_id,
+        MenuItem.deleted_at.is_(None),
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Menu tidak ditemukan")
@@ -159,13 +172,23 @@ def delete_menu_item(
     db: Session = Depends(get_db),
     current_seller: Seller = Depends(get_current_seller),
 ):
+    """Hapus menu — SOFT-DELETE (B11).
+
+    Baris `menu_items` tidak boleh di-hard-delete karena `order_items`
+    (riwayat transaksi/laporan pendapatan) menunjuk ke menu ini dengan
+    FK NOT NULL. Menu ditandai `deleted_at` + `is_available=False` sehingga
+    hilang dari daftar seller & menu customer, tapi order lama tetap
+    joinable.
+    """
     item = db.query(MenuItem).filter(
         MenuItem.id == item_id,
         MenuItem.restaurant_id == current_seller.restaurant_id,
+        MenuItem.deleted_at.is_(None),
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Menu tidak ditemukan")
-    db.delete(item)
+    item.is_available = False
+    item.deleted_at = datetime.now(timezone.utc)
     db.commit()
     return {"message": "Menu dihapus"}
 
@@ -188,45 +211,63 @@ def create_order_cashier(
     db: Session = Depends(get_db),
     current_seller: Seller = Depends(get_current_seller),
 ):
-    """Create order manually via cashier mode."""
-    total = 0
-    order_items = []
+    """Create order manually via cashier mode — satu transaksi atomik (B8)."""
+    try:
+        total = 0
+        order_items = []
 
-    for item_data in data.items:
-        menu_item = db.query(MenuItem).filter(
-            MenuItem.id == item_data.menu_item_id,
-            MenuItem.restaurant_id == current_seller.restaurant_id,
-            MenuItem.is_available == True,
-        ).first()
-        if not menu_item:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Menu {item_data.menu_item_id} tidak ditemukan atau tidak tersedia",
+        for item_data in data.items:
+            menu_item = db.query(MenuItem).filter(
+                MenuItem.id == item_data.menu_item_id,
+                MenuItem.restaurant_id == current_seller.restaurant_id,
+                MenuItem.is_available == True,
+            ).first()
+            if not menu_item:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Menu {item_data.menu_item_id} tidak ditemukan atau tidak tersedia",
+                )
+            subtotal = menu_item.price * item_data.quantity
+            total += subtotal
+            order_items.append(
+                (menu_item, item_data.quantity, subtotal, menu_item.name, menu_item.price)
             )
-        subtotal = menu_item.price * item_data.quantity
-        total += subtotal
-        order_items.append((menu_item, item_data.quantity, subtotal))
 
-    order = Order(
-        id=str(uuid.uuid4()),
-        restaurant_id=current_seller.restaurant_id,
-        customer_name=data.customer_name,
-        total_price=total,
-        source="cashier",
-    )
-    db.add(order)
-    db.flush()
+        if total > MAX_ORDER_TOTAL:
+            raise HTTPException(
+                status_code=400,
+                detail="Total pesanan melebihi batas maksimum (Rp1.000.000.000)",
+            )
 
-    for menu_item, quantity, subtotal in order_items:
-        db.add(OrderItem(
+        order = Order(
             id=str(uuid.uuid4()),
-            order_id=order.id,
-            menu_item_id=menu_item.id,
-            quantity=quantity,
-            subtotal=subtotal,
-        ))
+            restaurant_id=current_seller.restaurant_id,
+            customer_name=data.customer_name,
+            total_price=total,
+            source="cashier",
+        )
+        db.add(order)
+        db.flush()
 
-    db.commit()
+        for menu_item, quantity, subtotal, item_name, item_price in order_items:
+            db.add(OrderItem(
+                id=str(uuid.uuid4()),
+                order_id=order.id,
+                menu_item_id=menu_item.id,
+                quantity=quantity,
+                subtotal=subtotal,
+                menu_item_name=item_name,
+                unit_price=item_price,
+            ))
+
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Gagal membuat pesanan")
+
     db.refresh(order)
     return order
 

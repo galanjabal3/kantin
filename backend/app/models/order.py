@@ -34,7 +34,9 @@ class Order(Base):
     # Relationships
     restaurant = relationship("Restaurant", back_populates="orders")
     customer = relationship("Customer", back_populates="orders")
-    items = relationship("OrderItem", back_populates="order")
+    items = relationship(
+        "OrderItem", back_populates="order", cascade="all, delete-orphan"
+    )
 
 
 class OrderItem(Base):
@@ -45,6 +47,11 @@ class OrderItem(Base):
     menu_item_id = Column(String, ForeignKey("menu_items.id"), nullable=False)
     quantity = Column(Float, nullable=False)
     subtotal = Column(Float, nullable=False)
+    # Snapshot transaksi (B11): nama & harga satuan disalin saat order dibuat
+    # sehingga laporan pendapatan tetap akurat walau menu di-soft-delete.
+    # Nullable untuk baris lama — di-backfill oleh revisi alembic.
+    menu_item_name = Column(String, nullable=True)
+    unit_price = Column(Float, nullable=True)
 
     order = relationship("Order", back_populates="items")
     menu_item = relationship("MenuItem", back_populates="order_items")

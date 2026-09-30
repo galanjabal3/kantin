@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
+from app.core.ratelimit import limiter
 from app.models.restaurant import Restaurant
 from app.models.menu import MenuItem
 from app.models.order import Order, OrderItem, OrderSource
 from app.models.customer import Customer
-from app.schemas.order import OrderCreate, OrderResponse
+from app.schemas.order import OrderCreate, OrderResponse, MAX_ORDER_TOTAL
 from app.schemas.menu import MenuItemResponse
 from app.schemas.restaurant import RestaurantResponse
 from typing import List, Optional
@@ -27,7 +28,9 @@ def get_restaurant(slug: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{slug}/menu", response_model=List[MenuItemResponse])
+@limiter.limit("20/minute")
 def get_restaurant_menu(
+    request: Request,
     slug: str,
     category_id: Optional[str] = None,
     db: Session = Depends(get_db),
@@ -43,6 +46,7 @@ def get_restaurant_menu(
     query = db.query(MenuItem).filter(
         MenuItem.restaurant_id == restaurant.id,
         MenuItem.is_available == True,
+        MenuItem.deleted_at.is_(None),  # soft-delete tidak boleh tampil
     ).options(joinedload(MenuItem.category))
 
     if category_id:
@@ -52,60 +56,83 @@ def get_restaurant_menu(
 
 
 @router.post("/{slug}/orders", response_model=OrderResponse)
+@limiter.limit("10/minute")
 def create_order(
+    request: Request,
     slug: str,
     data: OrderCreate,
     db: Session = Depends(get_db),
 ):
-    """Create a new order from customer."""
-    restaurant = db.query(Restaurant).filter(
-        Restaurant.slug == slug,
-        Restaurant.is_active == True,
-        Restaurant.is_open == True,
-    ).first()
-    if not restaurant:
-        raise HTTPException(status_code=404, detail="Restoran tidak ditemukan atau sedang tutup")
-
-    total = 0
-    order_items = []
-
-    for item_data in data.items:
-        menu_item = db.query(MenuItem).filter(
-            MenuItem.id == item_data.menu_item_id,
-            MenuItem.restaurant_id == restaurant.id,
-            MenuItem.is_available == True,
+    """Create a new order from customer — satu transaksi atomik (B8)."""
+    try:
+        restaurant = db.query(Restaurant).filter(
+            Restaurant.slug == slug,
+            Restaurant.is_active == True,
+            Restaurant.is_open == True,
         ).first()
-        if not menu_item:
+        if not restaurant:
             raise HTTPException(
-                status_code=404,
-                detail=f"Menu tidak tersedia",
+                status_code=404, detail="Restoran tidak ditemukan atau sedang tutup"
             )
-        subtotal = menu_item.price * item_data.quantity
-        total += subtotal
-        order_items.append((menu_item, item_data.quantity, subtotal))
 
-    order = Order(
-        id=str(uuid.uuid4()),
-        restaurant_id=restaurant.id,
-        customer_id=data.customer_id,
-        customer_name=data.customer_name,
-        table_number=data.table_number,
-        total_price=total,
-        source=OrderSource.customer,
-    )
-    db.add(order)
-    db.flush()
+        # Validasi SEMUA item dulu — belum ada baris yang ditulis ke DB.
+        total = 0
+        order_items = []
 
-    for menu_item, quantity, subtotal in order_items:
-        db.add(OrderItem(
+        for item_data in data.items:
+            menu_item = db.query(MenuItem).filter(
+                MenuItem.id == item_data.menu_item_id,
+                MenuItem.restaurant_id == restaurant.id,
+                MenuItem.is_available == True,
+            ).first()
+            if not menu_item:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Menu tidak tersedia",
+                )
+            subtotal = menu_item.price * item_data.quantity
+            total += subtotal
+            order_items.append(
+                (menu_item, item_data.quantity, subtotal, menu_item.name, menu_item.price)
+            )
+
+        if total > MAX_ORDER_TOTAL:
+            raise HTTPException(
+                status_code=400,
+                detail="Total pesanan melebihi batas maksimum (Rp1.000.000.000)",
+            )
+
+        order = Order(
             id=str(uuid.uuid4()),
-            order_id=order.id,
-            menu_item_id=menu_item.id,
-            quantity=quantity,
-            subtotal=subtotal,
-        ))
+            restaurant_id=restaurant.id,
+            customer_id=data.customer_id,
+            customer_name=data.customer_name,
+            table_number=data.table_number,
+            total_price=total,
+            source=OrderSource.customer,
+        )
+        db.add(order)
+        db.flush()
 
-    db.commit()
+        for menu_item, quantity, subtotal, item_name, item_price in order_items:
+            db.add(OrderItem(
+                id=str(uuid.uuid4()),
+                order_id=order.id,
+                menu_item_id=menu_item.id,
+                quantity=quantity,
+                subtotal=subtotal,
+                menu_item_name=item_name,
+                unit_price=item_price,
+            ))
+
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Gagal membuat pesanan")
+
     db.refresh(order)
     return order
 
@@ -116,10 +143,17 @@ def get_order_status(
     order_id: str,
     db: Session = Depends(get_db),
 ):
-    """Get order status — for customer to track their order."""
-    order = db.query(Order).filter(
-        Order.id == order_id,
-    ).options(joinedload(Order.items)).first()
+    """Get order status — for customer to track their order.
+
+    Order hanya boleh dibaca lewat slug restoran pemiliknya (fix IDOR / B4).
+    """
+    order = (
+        db.query(Order)
+        .join(Restaurant, Order.restaurant_id == Restaurant.id)
+        .filter(Order.id == order_id, Restaurant.slug == slug)
+        .options(joinedload(Order.items))
+        .first()
+    )
     if not order:
         raise HTTPException(status_code=404, detail="Order tidak ditemukan")
     return order

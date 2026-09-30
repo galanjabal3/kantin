@@ -16,5 +16,3 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
-      - key: FONNTE_TOKEN
-        sync: false
