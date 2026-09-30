@@ -53,6 +53,16 @@ jobs:
           cd frontend
           npm ci
 
+      - name: Lint
+        run: |
+          cd frontend
+          npm run lint
+
+      - name: Test
+        run: |
+          cd frontend
+          npm run test
+
       - name: Build
         run: |
           cd frontend

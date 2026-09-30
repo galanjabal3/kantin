@@ -4,6 +4,7 @@ import {
   getCategories,
   createCashierOrder,
 } from "../../lib/api";
+import { getPrinterSize, getReceiptWidthPx } from "../../utils/printer";
 import toast from "react-hot-toast";
 
 interface Category {
@@ -24,8 +25,28 @@ interface CartItem {
   price: number;
   quantity: number;
 }
+interface CreatedOrder {
+  id?: string;
+  status: string;
+  total_price: number;
+}
+interface LastOrder {
+  id?: string;
+  total_price: number;
+  cartSnapshot: CartItem[];
+  customerName: string;
+  tableNumber: string;
+}
 
-export default function CashierTab({ token }: { token: string }) {
+interface CashierTabProps {
+  token: string;
+  restaurantName: string;
+}
+
+export default function CashierTab({
+  token,
+  restaurantName,
+}: CashierTabProps) {
   const [menu, setMenu] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -34,8 +55,10 @@ export default function CashierTab({ token }: { token: string }) {
   const [tableNumber, setTableNumber] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [lastOrder, setLastOrder] = useState<any>(null);
+  const [lastOrder, setLastOrder] = useState<LastOrder | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
+
+  const receiptWidth = getReceiptWidthPx();
 
   const formatPrice = (price: number) =>
     new Intl.NumberFormat("id-ID", {
@@ -87,37 +110,46 @@ export default function CashierTab({ token }: { token: string }) {
     }
   };
 
-  const handleOrder = async () => {
-    if (cart.length === 0) return;
-    setSubmitting(true);
-    try {
-      const order = await createCashierOrder(token, {
-        customer_name: customerName || null,
-        table_number: tableNumber || null,
-        source: "cashier",
-        items: cart.map((i) => ({ menu_item_id: i.id, quantity: i.quantity })),
-      });
-      toast.success("Pesanan berhasil dibuat!");
-      setLastOrder({ ...order, cartSnapshot: cart, customerName, tableNumber });
-      setCart([]);
-      setCustomerName("");
-      setTableNumber("");
-
-      // Baca ukuran printer dari localStorage
-      const printerSize = localStorage.getItem("kantin-printer-size") || "58mm";
-
-      // Inject @page size sebelum print
-      const style = document.createElement("style");
-      style.id = "print-size-override";
-      style.innerHTML = `
+  // Ukuran kertas — satu sumber kebenaran (utils/printer). Dipanggil saat
+  // order dibuat DAN saat print ulang, supaya @page selalu ikut setting terbaru.
+  const applyPrintSize = () => {
+    const printerSize = getPrinterSize();
+    const style = document.createElement("style");
+    style.id = "print-size-override";
+    style.innerHTML = `
       @media print {
         @page { size: ${printerSize} auto; margin: 0; }
         body { width: ${printerSize}; }
       }
     `;
-      // Hapus style lama kalau ada
-      document.getElementById("print-size-override")?.remove();
-      document.head.appendChild(style);
+    document.getElementById("print-size-override")?.remove();
+    document.head.appendChild(style);
+  };
+
+  const handleOrder = async () => {
+    if (cart.length === 0) return;
+    setSubmitting(true);
+    try {
+      const order = (await createCashierOrder(token, {
+        customer_name: customerName || null,
+        table_number: tableNumber || null,
+        source: "cashier",
+        items: cart.map((i) => ({ menu_item_id: i.id, quantity: i.quantity })),
+      })) as CreatedOrder;
+      toast.success("Pesanan berhasil dibuat!");
+      setLastOrder({
+        id: order.id,
+        total_price: order.total_price,
+        cartSnapshot: cart,
+        customerName,
+        tableNumber,
+      });
+      setCart([]);
+      setCustomerName("");
+      setTableNumber("");
+
+      // Ukuran printer — satu sumber kebenaran (utils/printer)
+      applyPrintSize();
 
       setTimeout(() => window.print(), 3001);
     } catch {
@@ -134,93 +166,125 @@ export default function CashierTab({ token }: { token: string }) {
 
   if (loading)
     return (
-      <div className="text-center py-12 text-gray-400 text-sm">Memuat...</div>
+      <div className="text-center py-12 text-gray-500 text-sm">Memuat...</div>
     );
 
   return (
     <>
-      {/* Print struk — hidden saat normal, muncul saat print */}
+      {/* Print struk — hidden saat normal; saat print HANYA struk yang tercetak
+          (strategi visibility sama seperti QRTab: shell dashboard, header, tab,
+          dan toast tidak ikut tercetak) */}
       {lastOrder && (
-        <div
-          ref={printRef}
-          className="hidden print:block print:fixed print:inset-0 print:bg-white print:p-4"
-          style={{ fontFamily: "monospace" }}
-        >
-          <div style={{ width: "280px", margin: "0 auto" }}>
-            <p
-              style={{
-                textAlign: "center",
-                fontWeight: "bold",
-                fontSize: "16px",
-              }}
-            >
-              KANTIN
-            </p>
-            <p style={{ textAlign: "center", fontSize: "12px" }}>
-              Struk Pesanan
-            </p>
-            <p
-              style={{
-                textAlign: "center",
-                fontSize: "11px",
-                marginBottom: "8px",
-              }}
-            >
-              {new Date().toLocaleString("id-ID")}
-            </p>
-            <hr style={{ borderStyle: "dashed" }} />
-            {lastOrder.customerName && (
-              <p style={{ fontSize: "12px", margin: "6px 0" }}>
-                Nama: {lastOrder.customerName}
-              </p>
-            )}
-            {lastOrder.tableNumber && (
-              <p style={{ fontSize: "12px", margin: "6px 0" }}>
-                Meja: {lastOrder.tableNumber}
-              </p>
-            )}
-            <hr style={{ borderStyle: "dashed" }} />
-            {lastOrder.cartSnapshot.map((item: CartItem) => (
-              <div
-                key={item.id}
-                style={{ fontSize: "12px", marginBottom: "4px" }}
+        <>
+          <style>{`
+            @media print {
+              body * { visibility: hidden !important; }
+              #receipt-print-area, #receipt-print-area * {
+                visibility: visible !important;
+              }
+              #receipt-print-area {
+                display: block !important;
+                position: fixed;
+                left: 0;
+                top: 0;
+                width: ${receiptWidth}px;
+                max-width: 100%;
+                box-sizing: border-box;
+                background: #fff;
+                padding: 8px 4px 0;
+              }
+            }
+          `}</style>
+          <div
+            ref={printRef}
+            id="receipt-print-area"
+            className="hidden print:block"
+            style={{ fontFamily: "monospace" }}
+          >
+            <div style={{ width: "100%", margin: "0 auto" }}>
+              <p
+                style={{
+                  textAlign: "center",
+                  fontWeight: "bold",
+                  fontSize: "16px",
+                }}
               >
-                <p>{item.name}</p>
+                {restaurantName || "Kantin"}
+              </p>
+              <p style={{ textAlign: "center", fontSize: "12px" }}>
+                Struk Pesanan
+              </p>
+              {lastOrder.id && (
+                <p style={{ textAlign: "center", fontSize: "11px" }}>
+                  No. order: {lastOrder.id}
+                </p>
+              )}
+              <p
+                style={{
+                  textAlign: "center",
+                  fontSize: "11px",
+                  marginBottom: "8px",
+                }}
+              >
+                {new Date().toLocaleString("id-ID")}
+              </p>
+              <hr style={{ borderStyle: "dashed" }} />
+              {lastOrder.customerName && (
+                <p style={{ fontSize: "12px", margin: "6px 0" }}>
+                  Nama: {lastOrder.customerName}
+                </p>
+              )}
+              {lastOrder.tableNumber && (
+                <p style={{ fontSize: "12px", margin: "6px 0" }}>
+                  Meja: {lastOrder.tableNumber}
+                </p>
+              )}
+              <hr style={{ borderStyle: "dashed" }} />
+              {lastOrder.cartSnapshot.map((item: CartItem) => (
                 <div
-                  style={{ display: "flex", justifyContent: "space-between" }}
+                  key={item.id}
+                  style={{ fontSize: "12px", marginBottom: "4px" }}
                 >
-                  <span style={{ color: "#666" }}>
-                    {item.quantity} x {formatPrice(item.price)}
-                  </span>
-                  <span>{formatPrice(item.price * item.quantity)}</span>
+                  <p>{item.name}</p>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <span style={{ color: "#666" }}>
+                      {item.quantity} x {formatPrice(item.price)}
+                    </span>
+                    <span>{formatPrice(item.price * item.quantity)}</span>
+                  </div>
                 </div>
+              ))}
+              <hr style={{ borderStyle: "dashed" }} />
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontWeight: "bold",
+                  fontSize: "14px",
+                  margin: "6px 0",
+                }}
+              >
+                <span>TOTAL</span>
+                <span>{formatPrice(lastOrder.total_price)}</span>
               </div>
-            ))}
-            <hr style={{ borderStyle: "dashed" }} />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                fontWeight: "bold",
-                fontSize: "14px",
-                margin: "6px 0",
-              }}
-            >
-              <span>TOTAL</span>
-              <span>{formatPrice(lastOrder.total_price)}</span>
+              <hr style={{ borderStyle: "dashed" }} />
+              <p
+                style={{
+                  textAlign: "center",
+                  fontSize: "11px",
+                  marginTop: "8px",
+                }}
+              >
+                Terima kasih!
+              </p>
             </div>
-            <hr style={{ borderStyle: "dashed" }} />
-            <p
-              style={{
-                textAlign: "center",
-                fontSize: "11px",
-                marginTop: "8px",
-              }}
-            >
-              Terima kasih!
-            </p>
           </div>
-        </div>
+        </>
       )}
 
       {/* Main layout */}
@@ -235,7 +299,7 @@ export default function CashierTab({ token }: { token: string }) {
               onClick={() => setActiveCategory("all")}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 activeCategory === "all"
-                  ? "bg-brand-500 text-white"
+                  ? "bg-brand-700 text-white"
                   : "bg-white border border-gray-200 text-gray-600"
               }`}
             >
@@ -247,7 +311,7 @@ export default function CashierTab({ token }: { token: string }) {
                 onClick={() => setActiveCategory(cat.id)}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                   activeCategory === cat.id
-                    ? "bg-brand-500 text-white"
+                    ? "bg-brand-700 text-white"
                     : "bg-white border border-gray-200 text-gray-600"
                 }`}
               >
@@ -279,14 +343,14 @@ export default function CashierTab({ token }: { token: string }) {
                   <p className="text-sm font-medium text-gray-900 mb-0.5 line-clamp-2 text-left">
                     {item.name}
                   </p>
-                  <p className="text-sm text-brand-500 font-medium">
+                  <p className="text-sm text-brand-700 font-medium">
                     {formatPrice(item.price)}
                   </p>
                 </div>
               </button>
             ))}
             {filteredMenu.length === 0 && (
-              <div className="col-span-3 py-12 text-center text-gray-400 text-sm">
+              <div className="col-span-3 py-12 text-center text-gray-500 text-sm">
                 Tidak ada menu tersedia
               </div>
             )}
@@ -298,7 +362,7 @@ export default function CashierTab({ token }: { token: string }) {
           <p className="text-sm font-medium text-gray-900">Pesanan aktif</p>
 
           {cart.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-6">
+            <p className="text-xs text-gray-500 text-center py-6">
               Tap menu untuk menambahkan pesanan
             </p>
           ) : (
@@ -337,7 +401,7 @@ export default function CashierTab({ token }: { token: string }) {
 
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-600">Total</span>
-            <span className="text-sm font-medium text-brand-500">
+            <span className="text-sm font-medium text-brand-700">
               {formatPrice(total)}
             </span>
           </div>
@@ -348,29 +412,32 @@ export default function CashierTab({ token }: { token: string }) {
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
               placeholder="Nama customer"
-              className="px-3 py-2 border border-gray-200 rounded-lg text-xs outline-none focus:border-brand-500 transition-colors"
+              className="px-3 py-2 border border-gray-200 rounded-lg text-xs outline-none focus:border-brand-600 transition-colors"
             />
             <input
               type="text"
               value={tableNumber}
               onChange={(e) => setTableNumber(e.target.value)}
               placeholder="Nomor meja"
-              className="px-3 py-2 border border-gray-200 rounded-lg text-xs outline-none focus:border-brand-500 transition-colors"
+              className="px-3 py-2 border border-gray-200 rounded-lg text-xs outline-none focus:border-brand-600 transition-colors"
             />
           </div>
 
           <button
             onClick={handleOrder}
             disabled={cart.length === 0 || submitting}
-            className="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+            className="w-full bg-brand-700 hover:bg-brand-800 disabled:opacity-40 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
           >
             {submitting ? "Memproses..." : "Buat pesanan + cetak struk"}
           </button>
 
           {lastOrder && (
             <button
-              onClick={() => window.print()}
-              className="w-full border border-brand-500 text-brand-500 hover:bg-brand-50 text-sm py-2 rounded-lg transition-colors"
+              onClick={() => {
+                applyPrintSize();
+                window.print();
+              }}
+              className="w-full border border-brand-700 text-brand-700 hover:bg-brand-50 text-sm py-2 rounded-lg transition-colors"
             >
               Print ulang struk
             </button>

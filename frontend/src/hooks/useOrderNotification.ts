@@ -1,6 +1,13 @@
 import { useEffect, useRef } from "react";
 
-export function useOrderNotification(orders: any[], isReady: boolean) {
+interface NotifiableOrder {
+  id: string;
+  status: string;
+  customer_name?: string | null;
+  total_price: number;
+}
+
+export function useOrderNotification(orders: NotifiableOrder[], isReady: boolean) {
   const prevOrderIds = useRef<Set<string>>(new Set());
   const isFirst = useRef(true);
 
@@ -32,7 +39,7 @@ export function useOrderNotification(orders: any[], isReady: boolean) {
   }, [orders, isReady]);
 }
 
-function triggerNotification(order: any) {
+function triggerNotification(order: NotifiableOrder) {
   if (Notification.permission !== "granted") return;
 
   const title = "🔔 Pesanan baru masuk!";

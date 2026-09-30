@@ -88,7 +88,7 @@ export default function QRTab({ slug, restaurantName }: QRTabProps) {
                     Math.max(1, Math.min(100, Number(e.target.value))),
                   )
                 }
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -99,17 +99,17 @@ export default function QRTab({ slug, restaurantName }: QRTabProps) {
                 type="text"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
               />
             </div>
           </div>
           <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-400 font-mono">
+            <p className="text-xs text-gray-500 font-mono">
               {baseUrl}/r/{slug}?table=N
             </p>
             <button
               onClick={handlePrintAll}
-              className="bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              className="bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
             >
               Print semua QR
             </button>
@@ -132,13 +132,13 @@ export default function QRTab({ slug, restaurantName }: QRTabProps) {
                 <p className="text-sm font-medium text-gray-900">
                   Meja {table}
                 </p>
-                <p className="text-xs text-gray-400 font-mono mt-0.5">
+                <p className="text-xs text-gray-500 font-mono mt-0.5">
                   ?table={table}
                 </p>
               </div>
               <button
                 onClick={() => handlePrintOne(table)}
-                className="w-full text-xs border border-gray-200 hover:border-brand-400 hover:text-brand-500 text-gray-500 py-1.5 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                className="w-full text-xs border border-gray-200 hover:border-brand-400 hover:text-brand-700 text-gray-500 py-1.5 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
               >
                 Print meja ini
               </button>

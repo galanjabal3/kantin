@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import { getAllRestaurants, createRestaurant } from "../lib/api";
+import { errorMessage } from "../lib/errorMessage";
 import toast from "react-hot-toast";
 
 interface Restaurant {
@@ -67,8 +68,8 @@ export default function AdminPanel() {
         seller_password: "",
       });
       fetchRestaurants();
-    } catch (err: any) {
-      toast.error(err.message || "Gagal membuat restoran");
+    } catch (err) {
+      toast.error(errorMessage(err, "Gagal membuat restoran"));
     } finally {
       setSubmitting(false);
     }
@@ -90,12 +91,12 @@ export default function AdminPanel() {
           </div>
           <div>
             <h1 className="text-sm font-medium text-gray-900">Kantin Admin</h1>
-            <p className="text-xs text-gray-400">Panel administrasi</p>
+            <p className="text-xs text-gray-500">Panel administrasi</p>
           </div>
         </div>
         <button
           onClick={handleLogout}
-          className="text-gray-400 hover:text-gray-600 transition-colors p-1.5 rounded-lg hover:bg-gray-100"
+          className="text-gray-500 hover:text-gray-600 transition-colors p-1.5 rounded-lg hover:bg-gray-100"
           title="Keluar"
         >
           <svg
@@ -128,7 +129,7 @@ export default function AdminPanel() {
           </div>
           <button
             onClick={() => setShowForm(true)}
-            className="bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             + Daftarkan resto
           </button>
@@ -136,7 +137,7 @@ export default function AdminPanel() {
 
         {/* Error */}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3 mb-4">
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4">
             {error}
           </div>
         )}
@@ -158,7 +159,7 @@ export default function AdminPanel() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="Warung Bu Siti"
-                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
                 />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -168,7 +169,7 @@ export default function AdminPanel() {
                 <select
                   value={form.mode}
                   onChange={(e) => setForm({ ...form, mode: e.target.value })}
-                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
                 >
                   <option value="full">Full app</option>
                   <option value="cashier">Kasir only</option>
@@ -185,7 +186,7 @@ export default function AdminPanel() {
                     setForm({ ...form, description: e.target.value })
                   }
                   placeholder="Masakan rumahan khas Jawa Tengah"
-                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
                 />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -200,7 +201,7 @@ export default function AdminPanel() {
                     setForm({ ...form, seller_email: e.target.value })
                   }
                   placeholder="seller@email.com"
-                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
                 />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -215,7 +216,7 @@ export default function AdminPanel() {
                     setForm({ ...form, seller_password: e.target.value })
                   }
                   placeholder="••••••••"
-                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
                 />
               </div>
               <div className="col-span-2 flex gap-3 justify-end">
@@ -229,7 +230,7 @@ export default function AdminPanel() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  className="bg-brand-700 hover:bg-brand-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                 >
                   {submitting ? "Menyimpan..." : "Simpan"}
                 </button>
@@ -240,28 +241,72 @@ export default function AdminPanel() {
 
         {/* Table */}
         {loading ? (
-          <div className="text-center py-12 text-gray-400 text-sm">
+          <div className="text-center py-12 text-gray-500 text-sm">
             Memuat data...
           </div>
         ) : restaurants.length === 0 ? (
-          <div className="text-center py-12 text-gray-400 text-sm">
+          <div className="text-center py-12 text-gray-500 text-sm">
             Belum ada restoran terdaftar
           </div>
         ) : (
-          <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
+          <>
+            {/* Mobile: kartu bertumpuk (tabel tidak muat di 390px) */}
+            <div className="block md:hidden">
+              {restaurants.map((r) => (
+                <div
+                  key={r.id}
+                  className="bg-white border border-gray-100 rounded-xl p-4 mb-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-medium text-gray-900 min-w-0">
+                      {r.name}
+                    </p>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                        r.is_active
+                          ? "bg-green-50 text-green-700"
+                          : "bg-red-50 text-red-700"
+                      }`}
+                    >
+                      {r.is_active ? "Aktif" : "Nonaktif"}
+                    </span>
+                  </div>
+                  {r.description && (
+                    <p className="text-xs text-gray-500 mt-1">{r.description}</p>
+                  )}
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <span className="text-xs font-mono bg-blue-50 text-blue-600 px-2 py-1 rounded-md">
+                      /r/{r.slug}
+                    </span>
+                    <span
+                      className={`text-xs px-2 py-1 rounded-full font-medium ${
+                        r.mode === "full"
+                          ? "bg-purple-50 text-purple-600"
+                          : "bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      {r.mode === "full" ? "Full app" : "Kasir only"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop: tabel */}
+            <div className="hidden md:block bg-white border border-gray-100 rounded-2xl overflow-hidden">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left text-xs text-gray-400 font-medium px-6 py-3">
+                  <th className="text-left text-xs text-gray-500 font-medium px-6 py-3">
                     Nama
                   </th>
-                  <th className="text-left text-xs text-gray-400 font-medium px-6 py-3">
+                  <th className="text-left text-xs text-gray-500 font-medium px-6 py-3">
                     URL
                   </th>
-                  <th className="text-left text-xs text-gray-400 font-medium px-6 py-3">
+                  <th className="text-left text-xs text-gray-500 font-medium px-6 py-3">
                     Mode
                   </th>
-                  <th className="text-left text-xs text-gray-400 font-medium px-6 py-3">
+                  <th className="text-left text-xs text-gray-500 font-medium px-6 py-3">
                     Status
                   </th>
                 </tr>
@@ -277,7 +322,7 @@ export default function AdminPanel() {
                         {r.name}
                       </div>
                       {r.description && (
-                        <div className="text-xs text-gray-400 mt-0.5">
+                        <div className="text-xs text-gray-500 mt-0.5">
                           {r.description}
                         </div>
                       )}
@@ -292,7 +337,7 @@ export default function AdminPanel() {
                         className={`text-xs px-2 py-1 rounded-full font-medium ${
                           r.mode === "full"
                             ? "bg-purple-50 text-purple-600"
-                            : "bg-amber-50 text-amber-600"
+                            : "bg-amber-50 text-amber-700"
                         }`}
                       >
                         {r.mode === "full" ? "Full app" : "Kasir only"}
@@ -302,8 +347,8 @@ export default function AdminPanel() {
                       <span
                         className={`text-xs px-2 py-1 rounded-full font-medium ${
                           r.is_active
-                            ? "bg-green-50 text-green-600"
-                            : "bg-red-50 text-red-600"
+                            ? "bg-green-50 text-green-700"
+                            : "bg-red-50 text-red-700"
                         }`}
                       >
                         {r.is_active ? "Aktif" : "Nonaktif"}
@@ -313,7 +358,8 @@ export default function AdminPanel() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
     </div>

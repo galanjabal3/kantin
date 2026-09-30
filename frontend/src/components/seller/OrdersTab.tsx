@@ -37,10 +37,10 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  pending: "bg-yellow-50 text-yellow-600",
-  preparing: "bg-blue-50 text-blue-600",
-  ready: "bg-green-50 text-green-600",
-  done: "bg-gray-100 text-gray-500",
+  pending: "bg-yellow-50 text-yellow-700",
+  preparing: "bg-blue-50 text-blue-700",
+  ready: "bg-green-50 text-green-700",
+  done: "bg-gray-100 text-gray-600",
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -49,8 +49,8 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 const SOURCE_COLOR: Record<string, string> = {
-  customer: "bg-blue-50 text-blue-500",
-  cashier: "bg-amber-50 text-amber-600",
+  customer: "bg-blue-50 text-blue-700",
+  cashier: "bg-amber-50 text-amber-700",
 };
 
 export default function OrdersTab({ token }: { token: string }) {
@@ -169,7 +169,7 @@ export default function OrdersTab({ token }: { token: string }) {
             key={s.label}
             className="bg-white border border-gray-100 rounded-xl p-4"
           >
-            <p className="text-xs text-gray-400 mb-1">{s.label}</p>
+            <p className="text-xs text-gray-500 mb-1">{s.label}</p>
             <p className="text-2xl font-medium text-gray-900">{s.value}</p>
           </div>
         ))}
@@ -177,7 +177,7 @@ export default function OrdersTab({ token }: { token: string }) {
 
       {/* Active orders */}
       {activeOrders.length === 0 ? (
-        <div className="bg-white border border-gray-100 rounded-xl py-12 text-center text-gray-400 text-sm">
+        <div className="bg-white border border-gray-100 rounded-xl py-12 text-center text-gray-500 text-sm">
           Tidak ada order aktif
         </div>
       ) : (
@@ -200,14 +200,14 @@ export default function OrdersTab({ token }: { token: string }) {
                       {SOURCE_LABEL[order.source]}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400 flex items-center gap-2 flex-wrap">
+                  <p className="text-xs text-gray-500 flex items-center gap-2 flex-wrap">
                     <span>
                       {order.items.length} item ·{" "}
                       {formatPrice(order.total_price)} ·{" "}
                       {formatSmartTime(order.created_at)}
                     </span>
                     {order.table_number && (
-                      <span className="bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full text-xs font-medium">
+                      <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-xs font-medium">
                         {order.table_number}
                       </span>
                     )}
@@ -225,7 +225,7 @@ export default function OrdersTab({ token }: { token: string }) {
                     onClick={() =>
                       handleUpdateStatus(order.id, STATUS_FLOW[order.status])
                     }
-                    className="text-sm bg-brand-500 hover:bg-brand-600 text-white px-4 py-1.5 rounded-lg transition-colors"
+                    className="text-sm bg-brand-700 hover:bg-brand-800 text-white px-4 py-1.5 rounded-lg transition-colors"
                   >
                     {order.status === "pending"
                       ? "Proses"
@@ -243,7 +243,7 @@ export default function OrdersTab({ token }: { token: string }) {
       {/* Done orders */}
       {doneOrders.length > 0 && (
         <div>
-          <p className="text-xs text-gray-400 font-medium mb-3 uppercase tracking-wide">
+          <p className="text-xs text-gray-500 font-medium mb-3 uppercase tracking-wide">
             Selesai hari ini
           </p>
 
@@ -258,13 +258,13 @@ export default function OrdersTab({ token }: { token: string }) {
                   <span className="text-sm text-gray-700 font-medium">
                     {order.customer_name || "Tanpa nama"}
                   </span>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-500">
                     {formatPrice(order.total_price)}
                   </span>
                 </div>
 
                 {/* RIGHT */}
-                <span className="text-xs text-gray-400 whitespace-nowrap">
+                <span className="text-xs text-gray-500 whitespace-nowrap">
                   {formatSmartTime(order.created_at)}
                 </span>
               </div>
@@ -277,7 +277,7 @@ export default function OrdersTab({ token }: { token: string }) {
         <div>
           <button
             onClick={() => setShowOldOrders((prev) => !prev)}
-            className="flex items-center gap-2 text-xs text-gray-400 font-medium uppercase tracking-wide mb-3 hover:text-gray-600 transition-colors"
+            className="flex items-center gap-2 text-xs text-gray-500 font-medium uppercase tracking-wide mb-3 hover:text-gray-600 transition-colors"
           >
             <span>Sebelumnya ({oldDoneOrders.length})</span>
             <span
@@ -298,11 +298,11 @@ export default function OrdersTab({ token }: { token: string }) {
                     <span className="text-sm text-gray-700 font-medium">
                       {order.customer_name || "Tanpa nama"}
                     </span>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-500">
                       {formatPrice(order.total_price)}
                     </span>
                   </div>
-                  <span className="text-xs text-gray-400 whitespace-nowrap">
+                  <span className="text-xs text-gray-500 whitespace-nowrap">
                     {formatSmartTime(order.created_at)}
                   </span>
                 </div>

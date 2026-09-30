@@ -202,11 +202,11 @@ export default function MenuTab({ token }: { token: string }) {
               value={newCategory}
               onChange={(e) => setNewCategory(e.target.value)}
               placeholder="+ Tambah kategori"
-              className="text-xs border border-gray-200 rounded-full px-3 py-1.5 outline-none focus:border-brand-500 transition-colors w-36"
+              className="text-xs border border-gray-200 rounded-full px-3 py-1.5 outline-none focus:border-brand-600 transition-colors w-36"
             />
             <button
               type="submit"
-              className="text-xs bg-brand-500 text-white px-3 py-1.5 rounded-full hover:bg-brand-600 transition-colors"
+              className="text-xs bg-brand-700 text-white px-3 py-1.5 rounded-full hover:bg-brand-800 transition-colors"
             >
               Tambah
             </button>
@@ -219,7 +219,7 @@ export default function MenuTab({ token }: { token: string }) {
         <p className="text-sm text-gray-500">{menu.length} menu terdaftar</p>
         <button
           onClick={handleOpenAdd}
-          className="bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          className="bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
         >
           + Tambah menu
         </button>
@@ -242,7 +242,7 @@ export default function MenuTab({ token }: { token: string }) {
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 placeholder="Nasi Gudeg Komplit"
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -261,7 +261,7 @@ export default function MenuTab({ token }: { token: string }) {
                   });
                 }}
                 placeholder="Rp 22.000"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
               />
             </div>
             <div className="col-span-2 flex flex-col gap-1.5">
@@ -275,7 +275,7 @@ export default function MenuTab({ token }: { token: string }) {
                   setForm({ ...form, description: e.target.value })
                 }
                 placeholder="Gudeg, ayam, telur, krecek"
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -287,7 +287,7 @@ export default function MenuTab({ token }: { token: string }) {
                 onChange={(e) =>
                   setForm({ ...form, category_id: e.target.value })
                 }
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
               >
                 <option value="">Tanpa kategori</option>
                 {categories.map((cat) => (
@@ -308,7 +308,7 @@ export default function MenuTab({ token }: { token: string }) {
                   setForm({ ...form, image_url: e.target.value })
                 }
                 placeholder="https://..."
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
               />
             </div>
             <div className="col-span-2 flex items-center justify-between">
@@ -319,7 +319,7 @@ export default function MenuTab({ token }: { token: string }) {
                   onChange={(e) =>
                     setForm({ ...form, is_available: e.target.checked })
                   }
-                  className="accent-brand-500"
+                  className="accent-brand-700"
                 />
                 <span className="text-sm text-gray-600">Tersedia</span>
               </label>
@@ -334,7 +334,7 @@ export default function MenuTab({ token }: { token: string }) {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  className="bg-brand-700 hover:bg-brand-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                 >
                   {submitting ? "Menyimpan..." : "Simpan"}
                 </button>
@@ -364,7 +364,7 @@ export default function MenuTab({ token }: { token: string }) {
               <p className="text-sm font-medium text-gray-900 truncate">
                 {item.name}
               </p>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-500">
                 {item.category?.name || "—"} · {formatPrice(item.price)}
               </p>
             </div>
@@ -373,17 +373,23 @@ export default function MenuTab({ token }: { token: string }) {
                 onClick={() => handleToggleAvailable(item)}
                 className={`text-xs px-2 py-1 rounded-full font-medium ${
                   item.is_available
-                    ? "bg-green-50 text-green-600"
-                    : "bg-red-50 text-red-500"
+                    ? "bg-green-50 text-green-700"
+                    : "bg-red-50 text-red-700"
                 }`}
               >
                 {item.is_available ? "Ada" : "Habis"}
               </button>
               <button
                 onClick={() => handleOpenEdit(item)}
-                className="text-xs text-gray-400 hover:text-gray-600"
+                className="text-xs text-gray-500 hover:text-gray-600"
               >
                 Edit
+              </button>
+              <button
+                onClick={() => handleDelete(item.id)}
+                className="text-xs text-red-600 hover:text-red-700"
+              >
+                Hapus
               </button>
             </div>
           </div>
@@ -393,7 +399,7 @@ export default function MenuTab({ token }: { token: string }) {
       {/* Menu list */}
       {/* Desktop: table */}
       {menu.length === 0 ? (
-        <div className="bg-white border border-gray-100 rounded-xl py-12 text-center text-gray-400 text-sm">
+        <div className="bg-white border border-gray-100 rounded-xl py-12 text-center text-gray-500 text-sm">
           Belum ada menu — tambahkan menu pertama kamu!
         </div>
       ) : (
@@ -402,19 +408,19 @@ export default function MenuTab({ token }: { token: string }) {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="text-left text-xs text-gray-400 font-medium px-6 py-3">
+                <th className="text-left text-xs text-gray-500 font-medium px-6 py-3">
                   Menu
                 </th>
-                <th className="text-left text-xs text-gray-400 font-medium px-6 py-3">
+                <th className="text-left text-xs text-gray-500 font-medium px-6 py-3">
                   Kategori
                 </th>
-                <th className="text-left text-xs text-gray-400 font-medium px-6 py-3">
+                <th className="text-left text-xs text-gray-500 font-medium px-6 py-3">
                   Harga
                 </th>
-                <th className="text-left text-xs text-gray-400 font-medium px-6 py-3">
+                <th className="text-left text-xs text-gray-500 font-medium px-6 py-3">
                   Status
                 </th>
-                <th className="text-left text-xs text-gray-400 font-medium px-6 py-3"></th>
+                <th className="text-left text-xs text-gray-500 font-medium px-6 py-3"></th>
               </tr>
             </thead>
             <tbody>
@@ -441,7 +447,7 @@ export default function MenuTab({ token }: { token: string }) {
                           {item.name}
                         </p>
                         {item.description && (
-                          <p className="text-xs text-gray-400">
+                          <p className="text-xs text-gray-500">
                             {item.description}
                           </p>
                         )}
@@ -463,8 +469,8 @@ export default function MenuTab({ token }: { token: string }) {
                       onClick={() => handleToggleAvailable(item)}
                       className={`text-xs px-2 py-1 rounded-full font-medium transition-colors ${
                         item.is_available
-                          ? "bg-green-50 text-green-600 hover:bg-green-100"
-                          : "bg-red-50 text-red-500 hover:bg-red-100"
+                          ? "bg-green-50 text-green-700 hover:bg-green-100"
+                          : "bg-red-50 text-red-700 hover:bg-red-100"
                       }`}
                     >
                       {item.is_available ? "Tersedia" : "Habis"}
@@ -480,7 +486,7 @@ export default function MenuTab({ token }: { token: string }) {
                       </button>
                       <button
                         onClick={() => handleDelete(item.id)}
-                        className="text-xs text-red-400 hover:text-red-600 transition-colors"
+                        className="text-xs text-red-600 hover:text-red-700 transition-colors"
                       >
                         Hapus
                       </button>

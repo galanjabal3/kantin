@@ -8,9 +8,21 @@
   --color-brand-400: #FB923C;
   --color-brand-500: #F97316;
   --color-brand-600: #EA580C;
+  --color-brand-700: #C2410C;
+  --color-brand-800: #9A3412;
   --font-display: 'Playfair Display', serif;
   --font-sans: 'Plus Jakarta Sans', sans-serif;
 }
+
+/*
+ * Kontras WCAG AA (audit: node /tmp/contrast-audit.mjs)
+ * - white on brand-700 (#C2410C)      = 5.18:1  → teks putih di tombol/chip
+ * - brand-700 on white                = 5.18:1  → teks harga/link di putih
+ * - white on brand-800 (#9A3412)      = 7.31:1  → state hover
+ * - orange-100 on brand-700           = 4.52:1  → deskripsi hero
+ * - brand-700 on brand-50             = 4.88:1  → badge hero
+ * - brand-600 (#EA580C) on white      = 3.56:1  → border focus / toggle (non-teks)
+ */
 
 *, *::before, *::after { box-sizing: border-box; }
 body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }

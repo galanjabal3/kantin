@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { getRestaurant, getMenu, createOrder } from "../lib/api";
 import { useCartStore } from "../store/cartStore";
 import { Skeleton } from "../components/shared/Skeleton";
@@ -32,6 +32,71 @@ interface MenuItem {
 
 type Step = "menu" | "cart" | "checkout" | "tracking";
 
+interface StatusInfo {
+  label: string;
+  desc: string;
+  color: string;
+  step: number;
+}
+
+const STATUS_INFO: Record<string, StatusInfo> = {
+  pending: {
+    label: "Menunggu konfirmasi",
+    desc: "Pesanan kamu sedang menunggu dikonfirmasi penjual",
+    color: "text-yellow-700",
+    step: 1,
+  },
+  preparing: {
+    label: "Sedang diproses",
+    desc: "Penjual sedang menyiapkan pesanan kamu",
+    color: "text-blue-600",
+    step: 2,
+  },
+  ready: {
+    label: "Sedang diantar",
+    desc: "Pesanan kamu sedang diantar ke meja kamu",
+    color: "text-green-700",
+    step: 3,
+  },
+  done: {
+    label: "Selesai",
+    desc: "Pesanan sudah selesai, terima kasih!",
+    color: "text-gray-500",
+    step: 4,
+  },
+};
+
+// Guard: status di luar map (mis. paid/unpaid/failed/expired dari backend)
+// tidak boleh membuat tracking crash — fallback ke pending + label generik.
+function getStatusInfo(status: string): StatusInfo {
+  const known = STATUS_INFO[status];
+  if (known) return known;
+  return {
+    ...STATUS_INFO.pending,
+    label: "Memperbarui status",
+    desc: `Status pesanan saat ini: ${status || "tidak diketahui"}. Halaman ini diperbarui otomatis.`,
+  };
+}
+
+interface CreatedOrder {
+  id: string;
+  status: string;
+  total_price?: number;
+  created_at?: string;
+}
+
+// JSON.parse aman — kunci korup dihapus, tidak melempar error
+function readJSON<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    localStorage.removeItem(key);
+    return fallback;
+  }
+}
+
 export default function CustomerPage() {
   const { slug } = useParams<{ slug: string }>();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -46,8 +111,23 @@ export default function CustomerPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [tableNumber, setTableNumber] = useState<string>("");
+  // Total dari response server (sumber kebenaran setelah order dibuat)
+  const [serverTotal, setServerTotal] = useState<number | null>(null);
+  // Snapshot hitungan cart sebelum dibersihkan — untuk deteksi selisih
+  const [clientTotal, setClientTotal] = useState<number | null>(null);
 
-  const { items, addItem, updateQuantity, clearCart, total } = useCartStore();
+  const {
+    items,
+    addItem,
+    updateQuantity,
+    clearCart,
+    total,
+    slug: cartSlug,
+  } = useCartStore();
+
+  // Cart dari resto lain tidak boleh ikut ke checkout resto ini
+  const cartMismatch =
+    items.length > 0 && !!cartSlug && !!slug && cartSlug !== slug;
 
   const formatPrice = (price: number) =>
     new Intl.NumberFormat("id-ID", {
@@ -92,15 +172,29 @@ export default function CustomerPage() {
     // Restore active order — kalau ada order aktif yang belum selesai
     const savedOrder = localStorage.getItem(`kantin-active-order-${slug}`);
     if (savedOrder) {
-      const parsed = JSON.parse(savedOrder);
-      // Hanya restore kalau order dibuat dalam 2 jam terakhir
-      const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
-      if (parsed.timestamp > twoHoursAgo && parsed.status !== "done") {
-        setOrderId(parsed.orderId);
-        setOrderStatus(parsed.status);
-        setStep("tracking");
-      } else {
-        // Order sudah lama atau selesai — hapus
+      try {
+        const parsed = JSON.parse(savedOrder) as {
+          orderId?: string;
+          status?: string;
+          timestamp?: number;
+        };
+        // Hanya restore kalau order dibuat dalam 2 jam terakhir
+        const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+        if (
+          parsed.orderId &&
+          parsed.timestamp &&
+          parsed.timestamp > twoHoursAgo &&
+          parsed.status !== "done"
+        ) {
+          setOrderId(parsed.orderId);
+          setOrderStatus(parsed.status || "pending");
+          setStep("tracking");
+        } else {
+          // Order sudah lama atau selesai — hapus
+          localStorage.removeItem(`kantin-active-order-${slug}`);
+        }
+      } catch {
+        // Data korup — hapus, jangan sampai halaman blank
         localStorage.removeItem(`kantin-active-order-${slug}`);
       }
     }
@@ -114,6 +208,9 @@ export default function CustomerPage() {
         const { getOrderStatus } = await import("../lib/api");
         const data = await getOrderStatus(slug, orderId);
         setOrderStatus(data.status);
+        if (typeof data.total_price === "number") {
+          setServerTotal(data.total_price);
+        }
       } catch {
         // silent
       }
@@ -131,28 +228,66 @@ export default function CustomerPage() {
   const cartCount = items.reduce((sum, i) => sum + i.quantity, 0);
 
   const handleCheckout = async () => {
-    if (!slug || items.length === 0) return;
+    if (!slug || items.length === 0 || cartMismatch) return;
     setSubmitting(true);
+
+    const clientTotalNow = total();
+    let order: CreatedOrder;
     try {
-      const order = await createOrder(slug, {
+      order = await createOrder(slug, {
         customer_name: customerName || null,
         table_number: tableNumber || null,
         source: "customer",
         items: items.map((i) => ({ menu_item_id: i.id, quantity: i.quantity })),
       });
-      toast.success("Pesanan berhasil dibuat!");
-      setOrderId(order.id);
-      setOrderStatus(order.status);
-      clearCart();
-      setStep("tracking");
+    } catch {
+      toast.error("Gagal membuat pesanan, coba lagi");
+      setSubmitting(false);
+      return;
+    }
 
-      // Simpan order aktif ke localStorage
-      saveActiveOrder(order.id, order.status);
+    // Order sudah dibuat di server — semua langkah setelah ini tidak boleh
+    // menghasilkan toast "gagal" palsu.
+    toast.success("Pesanan berhasil dibuat!");
+    setClientTotal(clientTotalNow);
+    setServerTotal(
+      typeof order.total_price === "number" ? order.total_price : null,
+    );
+    setOrderId(order.id);
+    setOrderStatus(order.status);
+    clearCart();
+    setStep("tracking");
 
-      // Simpan ke history
-      const history = JSON.parse(
-        localStorage.getItem("kantin-history") || "[]",
+    // Simpan order aktif ke localStorage (gagal simpan → abaikan)
+    saveActiveOrder(order.id, order.status);
+    // Simpan ke history — terpisah dari blok checkout
+    appendHistory(order);
+    setSubmitting(false);
+  };
+
+  // Save active order to localStorage
+  const saveActiveOrder = (orderId: string, status: string) => {
+    try {
+      localStorage.setItem(
+        `kantin-active-order-${slug}`,
+        JSON.stringify({
+          orderId,
+          status,
+          timestamp: Date.now(),
+        }),
       );
+    } catch {
+      // storage penuh/blokir — tracking tetap jalan di memori
+    }
+  };
+
+  // Simpan history — gagal menulis history TIDAK boleh membatalkan checkout
+  const appendHistory = (order: CreatedOrder) => {
+    try {
+      const stored = readJSON<unknown>("kantin-history", []);
+      const history: Array<Record<string, unknown>> = Array.isArray(stored)
+        ? (stored as Array<Record<string, unknown>>)
+        : [];
       history.unshift({
         id: order.id,
         restaurant: restaurant?.name,
@@ -166,22 +301,8 @@ export default function CustomerPage() {
         JSON.stringify(history.slice(0, 20)),
       );
     } catch {
-      toast.error("Gagal membuat pesanan, coba lagi");
-    } finally {
-      setSubmitting(false);
+      // data korup/penuh — abaikan
     }
-  };
-
-  // Save active order to localStorage
-  const saveActiveOrder = (orderId: string, status: string) => {
-    localStorage.setItem(
-      `kantin-active-order-${slug}`,
-      JSON.stringify({
-        orderId,
-        status,
-        timestamp: Date.now(),
-      }),
-    );
   };
 
   // Clear active order from localStorage
@@ -189,43 +310,14 @@ export default function CustomerPage() {
     localStorage.removeItem(`kantin-active-order-${slug}`);
   };
 
-  const STATUS_INFO: Record<
-    string,
-    { label: string; desc: string; color: string; step: number }
-  > = {
-    pending: {
-      label: "Menunggu konfirmasi",
-      desc: "Pesanan kamu sedang menunggu dikonfirmasi penjual",
-      color: "text-yellow-600",
-      step: 1,
-    },
-    preparing: {
-      label: "Sedang diproses",
-      desc: "Penjual sedang menyiapkan pesanan kamu",
-      color: "text-blue-600",
-      step: 2,
-    },
-    ready: {
-      // label: "Siap diambil!",
-      // desc: "Pesanan kamu sudah siap, silakan ambil",
-      label: "Sedang diantar",
-      desc: "Pesanan kamu sedang diantar ke meja kamu",
-      color: "text-green-600",
-      step: 3,
-    },
-    done: {
-      label: "Selesai",
-      desc: "Pesanan sudah selesai, terima kasih!",
-      color: "text-gray-500",
-      step: 4,
-    },
-  };
+  // Aman untuk status apa pun (termasuk yang belum ada di STATUS_INFO)
+  const statusInfo = getStatusInfo(orderStatus);
 
   if (loading)
     return (
       <div className="min-h-screen bg-gray-50">
         {/* Hero skeleton */}
-        <div className="bg-brand-500 px-6 pt-10 pb-6">
+        <div className="bg-brand-700 px-6 pt-10 pb-6">
           <div className="max-w-lg mx-auto">
             <Skeleton
               className="w-12 h-12 rounded-xl mb-4"
@@ -269,9 +361,24 @@ export default function CustomerPage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="text-center">
-          <p className="text-gray-400 text-sm">
+          <p className="text-5xl font-bold text-brand-700 mb-3">404</p>
+          <p className="text-gray-500 text-sm mb-6">
             {error || "Restoran tidak ditemukan"}
           </p>
+          <div className="flex items-center justify-center gap-3">
+            <Link
+              to="/"
+              className="bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
+            >
+              Kembali ke beranda
+            </Link>
+            <Link
+              to="/login"
+              className="border border-gray-200 hover:border-gray-300 text-gray-600 text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
+            >
+              Masuk sebagai seller
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -280,10 +387,10 @@ export default function CustomerPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero */}
-      <div className="bg-brand-500 px-6 pt-10 pb-6">
+      <div className="bg-brand-700 px-6 pt-10 pb-6">
         <div className="max-w-lg mx-auto">
           <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mb-4">
-            <span className="text-brand-500 font-bold text-lg">
+            <span className="text-brand-700 font-bold text-lg">
               {restaurant.name.charAt(0)}
             </span>
           </div>
@@ -324,9 +431,9 @@ export default function CustomerPage() {
                 <div key={s} className="flex items-center gap-2 flex-1">
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${
-                      STATUS_INFO[orderStatus].step >= i + 1
-                        ? "bg-brand-500 text-white"
-                        : "bg-gray-100 text-gray-400"
+                      statusInfo.step >= i + 1
+                        ? "bg-brand-700 text-white"
+                        : "bg-gray-100 text-gray-600"
                     }`}
                   >
                     {i + 1}
@@ -334,8 +441,8 @@ export default function CustomerPage() {
                   {i < 3 && (
                     <div
                       className={`h-0.5 flex-1 ${
-                        STATUS_INFO[orderStatus].step > i + 1
-                          ? "bg-brand-500"
+                        statusInfo.step > i + 1
+                          ? "bg-brand-700"
                           : "bg-gray-100"
                       }`}
                     />
@@ -346,14 +453,31 @@ export default function CustomerPage() {
 
             <div className="text-center">
               <p
-                className={`text-lg font-medium mb-2 ${STATUS_INFO[orderStatus].color}`}
+                className={`text-lg font-medium mb-2 ${statusInfo.color}`}
               >
-                {STATUS_INFO[orderStatus].label}
+                {statusInfo.label}
               </p>
-              <p className="text-sm text-gray-500">
-                {STATUS_INFO[orderStatus].desc}
-              </p>
+              <p className="text-sm text-gray-500">{statusInfo.desc}</p>
             </div>
+
+            {/* Total dari server — sumber kebenaran setelah order dibuat */}
+            {serverTotal !== null && (
+              <div className="mt-5 flex items-center justify-between bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
+                <span className="text-sm text-gray-600">Total pesanan</span>
+                <span className="text-sm font-medium text-brand-700">
+                  {formatPrice(serverTotal)}
+                </span>
+              </div>
+            )}
+            {serverTotal !== null &&
+              clientTotal !== null &&
+              serverTotal !== clientTotal && (
+                <div className="mt-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
+                  Catatan: total dari sistem ({formatPrice(serverTotal)})
+                  berbeda dari hitungan keranjang ({formatPrice(clientTotal)}
+                  ). Yang berlaku adalah total pesanan dari sistem.
+                </div>
+              )}
 
             {orderStatus === "done" && (
               <button
@@ -362,7 +486,7 @@ export default function CustomerPage() {
                   setStep("menu");
                   setOrderId(null);
                 }}
-                className="w-full mt-6 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+                className="w-full mt-6 bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
               >
                 Pesan lagi
               </button>
@@ -400,20 +524,20 @@ export default function CustomerPage() {
             </div>
             <div className="flex justify-between text-sm font-medium border-t border-gray-100 pt-3 mb-5">
               <span>Total</span>
-              <span className="text-brand-500">{formatPrice(total())}</span>
+              <span className="text-brand-700">{formatPrice(total())}</span>
             </div>
 
             {/* Name input */}
             <div className="flex flex-col gap-1.5 mb-5">
               <label className="text-xs text-gray-500 font-medium">
-                Nama kamu <span className="text-red-400">*</span>
+                Nama kamu <span className="text-red-600">*</span>
               </label>
               <input
                 type="text"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="Masukkan nama kamu"
-                className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
               />
             </div>
 
@@ -427,13 +551,13 @@ export default function CustomerPage() {
                   value={tableNumber}
                   onChange={(e) => setTableNumber(e.target.value)}
                   placeholder="Contoh: Meja 5"
-                  className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-500 transition-colors"
+                  className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-600 transition-colors"
                 />
               </div>
             )}
 
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 text-xs rounded-lg px-3 py-2 mb-4">
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2 mb-4">
                 {error}
               </div>
             )}
@@ -443,7 +567,7 @@ export default function CustomerPage() {
               disabled={
                 submitting || !restaurant.is_open || !customerName.trim()
               }
-              className="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+              className="w-full bg-brand-700 hover:bg-brand-800 disabled:opacity-40 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
             >
               {submitting
                 ? "Memproses..."
@@ -469,8 +593,21 @@ export default function CustomerPage() {
           <h2 className="text-base font-medium text-gray-900 mb-4">
             Keranjang
           </h2>
-          {items.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 text-sm">
+          {cartMismatch ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-4 flex flex-col gap-3">
+              <p className="text-xs text-amber-800">
+                Keranjang berisi pesanan dari resto lain. Kosongkan dulu untuk
+                melanjutkan.
+              </p>
+              <button
+                onClick={clearCart}
+                className="w-full bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+              >
+                Kosongkan keranjang
+              </button>
+            </div>
+          ) : items.length === 0 ? (
+            <div className="text-center py-12 text-gray-500 text-sm">
               Keranjang kosong
             </div>
           ) : (
@@ -484,7 +621,7 @@ export default function CustomerPage() {
                     <p className="text-sm font-medium text-gray-900">
                       {item.name}
                     </p>
-                    <p className="text-xs text-brand-500 mt-0.5">
+                    <p className="text-xs text-brand-700 mt-0.5">
                       {formatPrice(item.price)}
                     </p>
                   </div>
@@ -510,14 +647,14 @@ export default function CustomerPage() {
 
               <div className="bg-white border border-gray-100 rounded-xl p-4 flex justify-between">
                 <span className="text-sm font-medium text-gray-900">Total</span>
-                <span className="text-sm font-medium text-brand-500">
+                <span className="text-sm font-medium text-brand-700">
                   {formatPrice(total())}
                 </span>
               </div>
 
               <button
                 onClick={() => setStep("checkout")}
-                className="w-full bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium py-3 rounded-xl transition-colors"
+                className="w-full bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium py-3 rounded-xl transition-colors"
               >
                 Lanjut ke checkout
               </button>
@@ -529,13 +666,30 @@ export default function CustomerPage() {
       {/* Menu step */}
       {step === "menu" && (
         <div className="max-w-lg mx-auto">
+          {/* Cart dari resto lain — jangan sampai bocor ke checkout */}
+          {cartMismatch && (
+            <div className="px-4 pt-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                <p className="text-xs text-amber-800 flex-1">
+                  Keranjang berisi pesanan dari resto lain
+                </p>
+                <button
+                  onClick={clearCart}
+                  className="text-xs font-medium text-brand-700 underline shrink-0"
+                >
+                  Kosongkan
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Category filter */}
           <div className="flex gap-2 px-4 py-4 overflow-x-auto">
             <button
               onClick={() => setActiveCategory("all")}
               className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
                 activeCategory === "all"
-                  ? "bg-brand-500 text-white"
+                  ? "bg-brand-700 text-white"
                   : "bg-white border border-gray-200 text-gray-600"
               }`}
             >
@@ -547,7 +701,7 @@ export default function CustomerPage() {
                 onClick={() => setActiveCategory(cat.id)}
                 className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
                   activeCategory === cat.id
-                    ? "bg-brand-500 text-white"
+                    ? "bg-brand-700 text-white"
                     : "bg-white border border-gray-200 text-gray-600"
                 }`}
               >
@@ -559,7 +713,7 @@ export default function CustomerPage() {
           {/* Menu list */}
           <div className="px-4 flex flex-col gap-3 pb-32">
             {filteredMenu.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 text-sm">
+              <div className="text-center py-12 text-gray-500 text-sm">
                 Tidak ada menu tersedia
               </div>
             ) : (
@@ -586,12 +740,12 @@ export default function CustomerPage() {
                         {item.name}
                       </p>
                       {item.description && (
-                        <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">
+                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
                           {item.description}
                         </p>
                       )}
                       <div className="flex items-center justify-between mt-3">
-                        <span className="text-sm font-medium text-brand-500">
+                        <span className="text-sm font-medium text-brand-700">
                           {formatPrice(item.price)}
                         </span>
                         {cartItem ? (
@@ -600,7 +754,7 @@ export default function CustomerPage() {
                               onClick={() =>
                                 updateQuantity(item.id, cartItem.quantity - 1)
                               }
-                              className="w-7 h-7 rounded-full bg-brand-500 text-white flex items-center justify-center text-sm"
+                              className="w-7 h-7 rounded-full bg-brand-700 text-white flex items-center justify-center text-sm"
                             >
                               −
                             </button>
@@ -611,7 +765,7 @@ export default function CustomerPage() {
                               onClick={() =>
                                 updateQuantity(item.id, cartItem.quantity + 1)
                               }
-                              className="w-7 h-7 rounded-full bg-brand-500 text-white flex items-center justify-center text-sm"
+                              className="w-7 h-7 rounded-full bg-brand-700 text-white flex items-center justify-center text-sm"
                             >
                               +
                             </button>
@@ -630,7 +784,7 @@ export default function CustomerPage() {
                               )
                             }
                             disabled={!item.is_available}
-                            className="w-7 h-7 rounded-full bg-brand-500 hover:bg-brand-600 disabled:opacity-30 text-white flex items-center justify-center text-sm transition-colors"
+                            className="w-7 h-7 rounded-full bg-brand-700 hover:bg-brand-800 disabled:opacity-30 text-white flex items-center justify-center text-sm transition-colors"
                           >
                             +
                           </button>
@@ -643,15 +797,15 @@ export default function CustomerPage() {
             )}
           </div>
 
-          {/* Cart bar — sticky bottom */}
-          {cartCount > 0 && (
+          {/* Cart bar — sticky bottom (disembunyikan kalau cart resto lain) */}
+          {cartCount > 0 && !cartMismatch && (
             <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 pt-2 bg-linear-to-t from-gray-50">
               <div className="max-w-lg mx-auto">
                 <button
                   onClick={() => setStep("cart")}
-                  className="w-full bg-brand-500 hover:bg-brand-600 text-white rounded-xl py-3.5 flex items-center justify-between px-5 transition-colors"
+                  className="w-full bg-brand-700 hover:bg-brand-800 text-white rounded-xl py-3.5 flex items-center justify-between px-5 transition-colors"
                 >
-                  <span className="bg-white bg-opacity-20 text-white text-xs font-medium px-2 py-0.5 rounded-full">
+                  <span className="bg-white text-brand-700 text-xs font-medium px-2 py-0.5 rounded-full">
                     {cartCount} item
                   </span>
                   <span className="text-sm font-medium">Lihat keranjang</span>
