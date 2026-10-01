@@ -1,10 +1,12 @@
 import { useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   getSellerMenu,
   getCategories,
   createCashierOrder,
 } from "../../lib/api";
 import { getPrinterSize, getReceiptWidthPx } from "../../utils/printer";
+import MenuImage from "../MenuImage";
 import toast from "react-hot-toast";
 
 interface Category {
@@ -25,17 +27,89 @@ interface CartItem {
   price: number;
   quantity: number;
 }
+// Item order seperti yang dikembalikan backend (OrderItemResponse) —
+// snapshot nama & harga satuan saat order dibuat.
+interface ServerOrderItem {
+  id: string;
+  menu_item_id: string;
+  quantity: number;
+  subtotal: number;
+  menu_item_name?: string | null;
+  unit_price?: number | null;
+  menu_item?: { id: string; name: string; price: number } | null;
+}
 interface CreatedOrder {
   id?: string;
   status: string;
   total_price: number;
+  created_at?: string;
+  customer_name?: string | null;
+  table_number?: string | null;
+  items?: ServerOrderItem[];
+}
+// Satu baris di struk. Sumber utama: respons server (satu sumber kebenaran
+// dengan total_price). Fallback: snapshot cart di client.
+interface ReceiptLine {
+  key: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
 }
 interface LastOrder {
   id?: string;
   total_price: number;
-  cartSnapshot: CartItem[];
+  lines: ReceiptLine[];
   customerName: string;
   tableNumber: string;
+  /** Waktu order ASLI (dari server) — bukan waktu render/reprint struk */
+  createdAt: string;
+}
+
+function linesFromServer(order: CreatedOrder): ReceiptLine[] {
+  return (order.items ?? []).map((it, i) => {
+    const quantity = Number(it.quantity) || 0;
+    const subtotal = Number(it.subtotal) || 0;
+    const unitPrice =
+      it.unit_price ??
+      it.menu_item?.price ??
+      (quantity > 0 ? subtotal / quantity : 0);
+    return {
+      key: it.id || `server-${i}`,
+      name: it.menu_item_name || it.menu_item?.name || "Item pesanan",
+      quantity,
+      unitPrice,
+      subtotal,
+    };
+  });
+}
+
+function linesFromCart(cart: CartItem[]): ReceiptLine[] {
+  return cart.map((i) => ({
+    key: i.id,
+    name: i.name,
+    quantity: i.quantity,
+    unitPrice: i.price,
+    subtotal: i.price * i.quantity,
+  }));
+}
+
+// Garis putus-putus dengan spasi eksplisit (8px) — margin default browser
+// sudah di-reset Tailwind, jadi jaraknya harus ditentukan sendiri supaya
+// teks TOTAL tidak menempel / menabrak garis.
+function ReceiptRule() {
+  return (
+    <div
+      aria-hidden="true"
+      style={{ borderTop: "1px dashed #94A3B8", margin: "8px 0", height: 0 }}
+    />
+  );
+}
+
+function formatReceiptTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("id-ID");
 }
 
 interface CashierTabProps {
@@ -137,12 +211,16 @@ export default function CashierTab({
         items: cart.map((i) => ({ menu_item_id: i.id, quantity: i.quantity })),
       })) as CreatedOrder;
       toast.success("Pesanan berhasil dibuat!");
+      // Baris struk diambil dari respons server supaya selaras dengan
+      // total_price (bila server tidak mengirim items, fallback ke cart).
+      const serverLines = linesFromServer(order);
       setLastOrder({
         id: order.id,
         total_price: order.total_price,
-        cartSnapshot: cart,
-        customerName,
-        tableNumber,
+        lines: serverLines.length > 0 ? serverLines : linesFromCart(cart),
+        customerName: customerName || order.customer_name || "",
+        tableNumber: tableNumber || order.table_number || "",
+        createdAt: order.created_at || new Date().toISOString(),
       });
       setCart([]);
       setCustomerName("");
@@ -169,29 +247,27 @@ export default function CashierTab({
       <div className="text-center py-12 text-gray-500 text-sm">Memuat...</div>
     );
 
-  return (
-    <>
-      {/* Print struk — hidden saat normal; saat print HANYA struk yang tercetak
-          (strategi visibility sama seperti QRTab: shell dashboard, header, tab,
-          dan toast tidak ikut tercetak) */}
-      {lastOrder && (
+  // Struk dirender lewat portal ke <body> (sibling #root):
+  //  - di layar tetap tersembunyi (class hidden print:block)
+  //  - saat print tinggal menyembunyikan saudara-sebelahnya, sehingga struk
+  //    mengalir normal dari atas halaman — baris item yang banyak tidak
+  //    terpotong seperti pada strategi position:fixed sebelumnya.
+  const receipt = lastOrder
+    ? createPortal(
         <>
           <style>{`
             @media print {
-              body * { visibility: hidden !important; }
-              #receipt-print-area, #receipt-print-area * {
-                visibility: visible !important;
+              body > *:not(#receipt-print-area):not(style) {
+                display: none !important;
               }
               #receipt-print-area {
                 display: block !important;
-                position: fixed;
-                left: 0;
-                top: 0;
+                position: static;
                 width: ${receiptWidth}px;
                 max-width: 100%;
                 box-sizing: border-box;
                 background: #fff;
-                padding: 8px 4px 0;
+                padding: 0;
               }
             }
           `}</style>
@@ -199,7 +275,7 @@ export default function CashierTab({
             ref={printRef}
             id="receipt-print-area"
             className="hidden print:block"
-            style={{ fontFamily: "monospace" }}
+            style={{ fontFamily: "monospace", lineHeight: 1.45 }}
           >
             <div style={{ width: "100%", margin: "0 auto" }}>
               <p
@@ -219,16 +295,19 @@ export default function CashierTab({
                   No. order: {lastOrder.id}
                 </p>
               )}
+              {/* Waktu order ASLI dari server — print ulang 2 jam kemudian
+                  tetap menampilkan waktu pembuatan order */}
               <p
+                data-receipt-time
                 style={{
                   textAlign: "center",
                   fontSize: "11px",
-                  marginBottom: "8px",
+                  margin: "0 0 4px",
                 }}
               >
-                {new Date().toLocaleString("id-ID")}
+                {formatReceiptTime(lastOrder.createdAt)}
               </p>
-              <hr style={{ borderStyle: "dashed" }} />
+              <ReceiptRule />
               {lastOrder.customerName && (
                 <p style={{ fontSize: "12px", margin: "6px 0" }}>
                   Nama: {lastOrder.customerName}
@@ -239,13 +318,14 @@ export default function CashierTab({
                   Meja: {lastOrder.tableNumber}
                 </p>
               )}
-              <hr style={{ borderStyle: "dashed" }} />
-              {lastOrder.cartSnapshot.map((item: CartItem) => (
+              <ReceiptRule />
+              {lastOrder.lines.map((line) => (
                 <div
-                  key={item.id}
-                  style={{ fontSize: "12px", marginBottom: "4px" }}
+                  key={line.key}
+                  data-receipt-item
+                  style={{ fontSize: "12px", margin: "6px 0" }}
                 >
-                  <p>{item.name}</p>
+                  <p style={{ margin: 0 }}>{line.name}</p>
                   <div
                     style={{
                       display: "flex",
@@ -253,39 +333,46 @@ export default function CashierTab({
                     }}
                   >
                     <span style={{ color: "#666" }}>
-                      {item.quantity} x {formatPrice(item.price)}
+                      {line.quantity} x {formatPrice(line.unitPrice)}
                     </span>
-                    <span>{formatPrice(item.price * item.quantity)}</span>
+                    <span>{formatPrice(line.subtotal)}</span>
                   </div>
                 </div>
               ))}
-              <hr style={{ borderStyle: "dashed" }} />
+              <ReceiptRule />
               <div
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
                   fontWeight: "bold",
                   fontSize: "14px",
+                  lineHeight: 1.6,
                   margin: "6px 0",
                 }}
               >
                 <span>TOTAL</span>
                 <span>{formatPrice(lastOrder.total_price)}</span>
               </div>
-              <hr style={{ borderStyle: "dashed" }} />
+              <ReceiptRule />
               <p
                 style={{
                   textAlign: "center",
                   fontSize: "11px",
-                  marginTop: "8px",
+                  margin: "8px 0 0",
                 }}
               >
                 Terima kasih!
               </p>
             </div>
           </div>
-        </>
-      )}
+        </>,
+        document.body,
+      )
+    : null;
+
+  return (
+    <>
+      {receipt}
 
       {/* Main layout */}
       <div className="flex flex-col lg:grid lg:grid-cols-[1fr_320px] gap-6 print:hidden">
@@ -328,17 +415,11 @@ export default function CashierTab({
                 onClick={() => addToCart(item)}
                 className="bg-white border border-gray-100 rounded-xl p-3 text-left hover:border-brand-300 hover:bg-brand-50 transition-all flex items-center gap-3 lg:flex-col lg:items-start lg:p-4"
               >
-                {item.image_url ? (
-                  <img
-                    src={item.image_url}
-                    alt={item.name}
-                    className="w-14 h-14 lg:w-full lg:h-24 object-cover rounded-lg flex-shrink-0"
-                  />
-                ) : (
-                  <div className="w-14 h-14 lg:w-full lg:h-24 bg-gray-100 rounded-lg flex-shrink-0 flex items-center justify-center text-gray-300 text-xs">
-                    foto
-                  </div>
-                )}
+                <MenuImage
+                  name={item.name}
+                  imageUrl={item.image_url}
+                  className="w-14 h-14 lg:w-full lg:h-24 rounded-lg flex-shrink-0"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 mb-0.5 line-clamp-2 text-left">
                     {item.name}
@@ -426,7 +507,7 @@ export default function CashierTab({
           <button
             onClick={handleOrder}
             disabled={cart.length === 0 || submitting}
-            className="w-full bg-brand-700 hover:bg-brand-800 disabled:opacity-40 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+            className="w-full bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium py-2.5 rounded-lg transition-colors disabled:bg-brand-100 disabled:hover:bg-brand-100 disabled:text-brand-700 disabled:cursor-not-allowed"
           >
             {submitting ? "Memproses..." : "Buat pesanan + cetak struk"}
           </button>
