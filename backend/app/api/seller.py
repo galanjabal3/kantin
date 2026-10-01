@@ -242,7 +242,9 @@ def create_order_cashier(
         order = Order(
             id=str(uuid.uuid4()),
             restaurant_id=current_seller.restaurant_id,
+            customer_id=data.customer_id,
             customer_name=data.customer_name,
+            table_number=data.table_number,
             total_price=total,
             source="cashier",
         )
