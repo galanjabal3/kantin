@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Bell, LogOut } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 import { getMyRestaurant } from "../lib/api";
 import OrdersTab from "../components/seller/OrdersTab";
@@ -20,6 +21,12 @@ interface Restaurant {
 
 type Tab = "orders" | "cashier" | "menu" | "qr" | "settings";
 
+// Gradasi tepi kiri-kanan untuk kontainer tab yang bisa digeser. Mask menempel
+// pada box elemen (tidak ikut ter-scroll), sehingga tepi selalu memudar dan
+// memberi sinyal jelas bahwa masih ada tab yang bisa digeser.
+const EDGE_FADE =
+  "linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%)";
+
 export default function SellerDashboard() {
   const navigate = useNavigate();
   const token = useAuthStore((s) => s.token);
@@ -33,6 +40,13 @@ export default function SellerDashboard() {
     Notification.permission,
   );
 
+  // Kontainer scroll tab + tombol tab aktif — dipakai untuk menjamin tab
+  // aktif selalu terlihat penuh (tidak terpotong di tepi viewport).
+  const tabScrollerRef = useRef<HTMLDivElement>(null);
+  const tabButtonRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>(
+    {},
+  );
+
   useEffect(() => {
     if (!token || userType !== "seller") {
       navigate("/login", { replace: true });
@@ -40,6 +54,22 @@ export default function SellerDashboard() {
     }
     fetchRestaurant();
   }, [token, userType]);
+
+  // Tab aktif di-scroll ke tengah viewport (inline: "center") HANYA bila
+  // posisinya belum terlihat penuh — saat load pertama tidak ikut bergeser.
+  // Guard typeof: jsdom tidak mengimplementasikan scrollIntoView.
+  useEffect(() => {
+    const el = tabButtonRefs.current[activeTab];
+    const scroller = tabScrollerRef.current;
+    if (!el || !scroller || typeof el.scrollIntoView !== "function") return;
+    const area = scroller.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    const fullyVisible =
+      rect.left >= area.left + 4 && rect.right <= area.right - 4;
+    if (!fullyVisible) {
+      el.scrollIntoView({ inline: "center", block: "nearest" });
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (restaurant?.mode === "cashier" && activeTab === "qr") {
@@ -94,7 +124,14 @@ export default function SellerDashboard() {
       <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-3 md:py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <img src="/logo.svg" alt="Kantin" className="w-8 h-8 shrink-0" />
+            {/* Avatar inisial tenant — header dashboard adalah ruang tenant,
+                bukan ruang brand platform (logo Kantin tetap di landing/login) */}
+            <div
+              className="w-8 h-8 shrink-0 rounded-lg bg-brand-700 text-white flex items-center justify-center text-sm font-semibold uppercase"
+              aria-hidden="true"
+            >
+              {(restaurant?.name || "?").trim().charAt(0)}
+            </div>
             <div className="min-w-0">
               <h1 className="text-sm font-medium text-gray-900 truncate">
                 {restaurant?.name}
@@ -128,7 +165,7 @@ export default function SellerDashboard() {
                 title="Aktifkan notifikasi"
               >
                 <span className="hidden sm:inline">Aktifkan notifikasi</span>
-                <span className="sm:hidden">🔔</span>
+                <Bell className="sm:hidden w-4 h-4" />
               </button>
             )}
 
@@ -138,32 +175,35 @@ export default function SellerDashboard() {
               className="text-gray-500 hover:text-gray-600 transition-colors p-1.5 rounded-lg hover:bg-gray-100"
               title="Keluar"
             >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
+              <LogOut size={18} />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Tabs — scrollable di mobile */}
-      <div className="bg-white border-b border-gray-100 overflow-x-auto">
+      {/* Tabs — scrollable di mobile, dengan affordance fade tepi kiri-kanan
+          supaya terlihat jelas "bisa digeser" (bukan teks rusak) */}
+      <div
+        ref={tabScrollerRef}
+        className="bg-white border-b border-gray-100 overflow-x-auto"
+        style={{
+          scrollPaddingInline: "16px",
+          WebkitMaskImage: EDGE_FADE,
+          maskImage: EDGE_FADE,
+          WebkitMaskSize: "100% 100%",
+          maskSize: "100% 100%",
+          WebkitMaskRepeat: "no-repeat",
+          maskRepeat: "no-repeat",
+        }}
+      >
         <div className="max-w-6xl mx-auto px-4 md:px-6">
           <div className="flex gap-1 min-w-max md:min-w-0">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                ref={(el) => {
+                  tabButtonRefs.current[tab.id] = el;
+                }}
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === tab.id

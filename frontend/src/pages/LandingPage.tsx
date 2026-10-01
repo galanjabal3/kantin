@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { BarChart3, Receipt, UtensilsCrossed, Zap } from "lucide-react";
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -14,17 +15,17 @@ export default function LandingPage() {
 
   const features = [
     {
-      icon: "⚡",
+      icon: Zap,
       title: "Order cepat",
       desc: "Scan QR meja, pilih menu, checkout — selesai",
     },
     {
-      icon: "🧾",
+      icon: Receipt,
       title: "Struk otomatis",
       desc: "Cetak struk thermal langsung dari browser",
     },
     {
-      icon: "📊",
+      icon: BarChart3,
       title: "Dashboard seller",
       desc: "Kelola menu, terima order, update status real-time",
     },
@@ -43,8 +44,8 @@ export default function LandingPage() {
             className="bg-white rounded-2xl p-6 max-w-sm w-full"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="w-12 h-12 bg-brand-50 rounded-xl flex items-center justify-center mb-4 text-2xl">
-              🍽️
+            <div className="w-12 h-12 bg-brand-50 rounded-xl flex items-center justify-center mb-4">
+              <UtensilsCrossed className="w-6 h-6 text-brand-600" />
             </div>
             <h2
               className="text-xl text-gray-900 mb-2"
@@ -110,7 +111,7 @@ export default function LandingPage() {
           Multi-tenant food ordering platform
         </div>
         <h1
-          className="text-5xl text-gray-900 mb-6 leading-tight"
+          className="text-4xl sm:text-5xl text-gray-900 mb-6 leading-tight text-balance"
           style={{ fontFamily: "Playfair Display, serif" }}
         >
           Pesan makanan,
@@ -143,8 +144,8 @@ export default function LandingPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
           {features.map((f) => (
             <div key={f.title} className="bg-gray-50 rounded-2xl p-6">
-              <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-xl mb-4 border border-gray-100">
-                {f.icon}
+              <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center mb-4 border border-gray-100">
+                <f.icon className="w-5 h-5 text-brand-600" />
               </div>
               <h3 className="text-sm font-medium text-gray-900 mb-2">
                 {f.title}

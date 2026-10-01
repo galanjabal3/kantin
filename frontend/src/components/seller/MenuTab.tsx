@@ -8,6 +8,7 @@ import {
   createCategory,
 } from "../../lib/api";
 import { Skeleton } from "../../components/shared/Skeleton";
+import MenuImage from "../MenuImage";
 import toast from "react-hot-toast";
 
 interface Category {
@@ -351,15 +352,11 @@ export default function MenuTab({ token }: { token: string }) {
             key={item.id}
             className="bg-white border border-gray-100 rounded-xl p-4 mb-3 flex items-center gap-3"
           >
-            {item.image_url ? (
-              <img
-                src={item.image_url}
-                alt={item.name}
-                className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-lg bg-gray-100 flex-shrink-0" />
-            )}
+            <MenuImage
+              name={item.name}
+              imageUrl={item.image_url}
+              className="w-12 h-12 rounded-lg flex-shrink-0"
+            />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 truncate">
                 {item.name}
@@ -431,17 +428,11 @@ export default function MenuTab({ token }: { token: string }) {
                 >
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      {item.image_url ? (
-                        <img
-                          src={item.image_url}
-                          alt={item.name}
-                          className="w-10 h-10 rounded-lg object-cover"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-300 text-xs">
-                          foto
-                        </div>
-                      )}
+                      <MenuImage
+                        name={item.name}
+                        imageUrl={item.image_url}
+                        className="w-10 h-10 rounded-lg"
+                      />
                       <div>
                         <p className="text-sm font-medium text-gray-900">
                           {item.name}

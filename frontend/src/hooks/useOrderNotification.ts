@@ -42,7 +42,7 @@ export function useOrderNotification(orders: NotifiableOrder[], isReady: boolean
 function triggerNotification(order: NotifiableOrder) {
   if (Notification.permission !== "granted") return;
 
-  const title = "🔔 Pesanan baru masuk!";
+  const title = "Pesanan baru masuk!";
   const body = `${order.customer_name || "Tanpa nama"} — ${new Intl.NumberFormat(
     "id-ID",
     {

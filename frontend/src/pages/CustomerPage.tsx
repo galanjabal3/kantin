@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { getRestaurant, getMenu, createOrder } from "../lib/api";
 import { useCartStore } from "../store/cartStore";
 import { Skeleton } from "../components/shared/Skeleton";
+import MenuImage from "../components/MenuImage";
 import toast from "react-hot-toast";
 
 interface Restaurant {
@@ -567,7 +568,7 @@ export default function CustomerPage() {
               disabled={
                 submitting || !restaurant.is_open || !customerName.trim()
               }
-              className="w-full bg-brand-700 hover:bg-brand-800 disabled:opacity-40 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+              className="w-full bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium py-2.5 rounded-lg transition-colors disabled:bg-brand-100 disabled:hover:bg-brand-100 disabled:text-brand-700 disabled:cursor-not-allowed"
             >
               {submitting
                 ? "Memproses..."
@@ -724,17 +725,11 @@ export default function CustomerPage() {
                     key={item.id}
                     className="bg-white border border-gray-100 rounded-xl p-4 flex gap-3"
                   >
-                    {item.image_url ? (
-                      <img
-                        src={item.image_url}
-                        alt={item.name}
-                        className="w-20 h-20 rounded-lg object-cover shrink-0"
-                      />
-                    ) : (
-                      <div className="w-20 h-20 rounded-lg bg-gray-100 shrink-0 flex items-center justify-center text-gray-300 text-xs">
-                        foto
-                      </div>
-                    )}
+                    <MenuImage
+                      name={item.name}
+                      imageUrl={item.image_url}
+                      className="w-20 h-20 rounded-lg shrink-0"
+                    />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900">
                         {item.name}
