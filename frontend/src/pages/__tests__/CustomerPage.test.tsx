@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import CustomerPage from "../CustomerPage";
 import { useCartStore } from "../../store/cartStore";
@@ -202,5 +202,210 @@ describe("C4 — total dari server", () => {
     expect(
       screen.getByText(/berbeda dari hitungan keranjang/),
     ).toBeInTheDocument();
+  });
+});
+
+describe("F1 — soft exit: keluar dari tracking tanpa membuang sesi", () => {
+  it("klik Kembali ke menu → sesi dipertahankan & bar pesanan aktif muncul", async () => {
+    localStorage.setItem(
+      "kantin-active-order-warung-bu-siti",
+      JSON.stringify({
+        orderId: "ORD-1",
+        status: "pending",
+        timestamp: Date.now(),
+      }),
+    );
+    mockedApi.getOrderStatus.mockResolvedValue({ status: "pending" });
+
+    renderPage();
+
+    const exitBtn = await screen.findByRole("button", {
+      name: /Kembali ke menu/,
+    });
+    expect(exitBtn).toBeInTheDocument();
+
+    fireEvent.click(exitBtn);
+
+    expect(await screen.findByText("Semua")).toBeInTheDocument();
+    expect(screen.queryByText("Status pesanan")).not.toBeInTheDocument();
+    // Soft exit: localStorage TIDAK dihapus — user masih bisa kembali
+    expect(
+      localStorage.getItem("kantin-active-order-warung-bu-siti"),
+    ).not.toBeNull();
+
+    // Bar "Pesanan aktif" tampil di menu dengan label status terkini
+    expect(screen.getByText("Pesanan aktif")).toBeInTheDocument();
+    expect(screen.getByText("Menunggu konfirmasi")).toBeInTheDocument();
+
+    // Bar punya jalan kembali ke tracking
+    fireEvent.click(screen.getByRole("button", { name: /Lihat status/ }));
+    expect(await screen.findByText("Status pesanan")).toBeInTheDocument();
+  });
+});
+
+describe("F2 — restore order dari localStorage aman", () => {
+  it("order 404 di server → hapus sesi & kembali ke menu (bukan stuck)", async () => {
+    localStorage.setItem(
+      "kantin-active-order-warung-bu-siti",
+      JSON.stringify({
+        orderId: "ORD-HILANG",
+        status: "pending",
+        timestamp: Date.now(),
+      }),
+    );
+    mockedApi.getOrderStatus.mockRejectedValue(
+      Object.assign(new Error("Order tidak ditemukan"), { status: 404 }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Semua")).toBeInTheDocument();
+    expect(screen.queryByText("Status pesanan")).not.toBeInTheDocument();
+    expect(
+      localStorage.getItem("kantin-active-order-warung-bu-siti"),
+    ).toBeNull();
+  });
+
+  it("polling jaringan gagal → banner coba lagi + tetap bisa keluar", async () => {
+    localStorage.setItem(
+      "kantin-active-order-warung-bu-siti",
+      JSON.stringify({
+        orderId: "ORD-2",
+        status: "pending",
+        timestamp: Date.now(),
+      }),
+    );
+    mockedApi.getOrderStatus.mockRejectedValue(new Error("Failed to fetch"));
+
+    renderPage();
+
+    expect(
+      await screen.findByText("Tidak bisa memuat status pesanan"),
+    ).toBeInTheDocument();
+    // Tidak silent — user masih punya jalan keluar
+    expect(
+      screen.getByRole("button", { name: /Kembali ke menu/ }),
+    ).toBeInTheDocument();
+
+    // Tombol coba lagi me-refetch status
+    const callsBefore = mockedApi.getOrderStatus.mock.calls.length;
+    fireEvent.click(screen.getByText("Coba lagi"));
+    await waitFor(() =>
+      expect(mockedApi.getOrderStatus.mock.calls.length).toBeGreaterThan(
+        callsBefore,
+      ),
+    );
+  });
+});
+
+describe("S1 — soft exit setelah checkout", () => {
+  it("sesi order tetap ada & bar menampilkan status hasil polling", async () => {
+    useCartStore.setState({
+      items: [{ id: "m1", name: "Nasi Gudeg", price: 15000, quantity: 1 }],
+      slug: "warung-bu-siti",
+    });
+    mockedApi.createOrder.mockResolvedValue({
+      id: "ORD-7",
+      status: "pending",
+      total_price: 15000,
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    mockedApi.getOrderStatus.mockResolvedValue({ status: "preparing" });
+
+    renderPage();
+    await checkoutAs("Budi");
+
+    // Polling jalan di tracking → status ter-update
+    expect(await screen.findByText("Sedang diproses")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Kembali ke menu/ }));
+
+    expect(await screen.findByText("Semua")).toBeInTheDocument();
+    expect(
+      localStorage.getItem("kantin-active-order-warung-bu-siti"),
+    ).not.toBeNull();
+    // Sumber status di bar adalah state yang sama dengan tracking
+    expect(screen.getByText("Pesanan aktif")).toBeInTheDocument();
+    expect(screen.getByText("Sedang diproses")).toBeInTheDocument();
+
+    // Kembali lagi ke tracking lewat bar
+    fireEvent.click(screen.getByRole("button", { name: /Lihat status/ }));
+    expect(await screen.findByText("Status pesanan")).toBeInTheDocument();
+  });
+});
+
+describe("S2 — batalkan pesanan (buang sesi di sisi client)", () => {
+  it("konfirmasi Ya → kunci localStorage terhapus & bar hilang", async () => {
+    localStorage.setItem(
+      "kantin-active-order-warung-bu-siti",
+      JSON.stringify({
+        orderId: "ORD-1",
+        status: "pending",
+        timestamp: Date.now(),
+      }),
+    );
+    mockedApi.getOrderStatus.mockResolvedValue({ status: "pending" });
+
+    renderPage();
+
+    // Minta batal → muncul konfirmasi inline, belum ada yang dihapus
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Batalkan pesanan/ }),
+    );
+    expect(await screen.findByText("Yakin membatalkan pesanan?")).toBeInTheDocument();
+    expect(
+      localStorage.getItem("kantin-active-order-warung-bu-siti"),
+    ).not.toBeNull();
+
+    // Konfirmasi "Tidak" membatalkan tanpa efek apa pun
+    fireEvent.click(screen.getByRole("button", { name: "Tidak" }));
+    expect(
+      localStorage.getItem("kantin-active-order-warung-bu-siti"),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Batalkan pesanan/ }),
+    ).toBeInTheDocument();
+
+    // Konfirmasi "Ya" → buang sesi, kembali ke menu, bar tidak tampil
+    fireEvent.click(
+      screen.getByRole("button", { name: /Batalkan pesanan/ }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Ya" }));
+
+    expect(await screen.findByText("Semua")).toBeInTheDocument();
+    expect(
+      localStorage.getItem("kantin-active-order-warung-bu-siti"),
+    ).toBeNull();
+    expect(screen.queryByText("Pesanan aktif")).not.toBeInTheDocument();
+    expect(screen.queryByText("Status pesanan")).not.toBeInTheDocument();
+  });
+});
+
+describe("S3 — bar pesanan aktif tidak tampil untuk order selesai", () => {
+  it("status done + soft exit → bar tetap tidak muncul di menu", async () => {
+    useCartStore.setState({
+      items: [{ id: "m1", name: "Nasi Gudeg", price: 15000, quantity: 1 }],
+      slug: "warung-bu-siti",
+    });
+    mockedApi.createOrder.mockResolvedValue({
+      id: "ORD-8",
+      status: "preparing",
+      total_price: 15000,
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    mockedApi.getOrderStatus.mockResolvedValue({ status: "done" });
+
+    renderPage();
+    await checkoutAs("Budi");
+
+    expect(await screen.findByText("Selesai")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Kembali ke menu/ }));
+
+    expect(await screen.findByText("Semua")).toBeInTheDocument();
+    expect(screen.queryByText("Pesanan aktif")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Lihat status/ }),
+    ).not.toBeInTheDocument();
   });
 });

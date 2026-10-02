@@ -131,11 +131,26 @@ export default function LandingPage() {
             Daftarkan resto kamu
           </button>
           <button
-            onClick={() => navigate("/r/warung-bu-siti")}
+            onClick={() => navigate("/r/kantin-demo")}
             className="border border-gray-200 hover:border-gray-300 text-gray-600 px-6 py-3 rounded-xl text-sm font-medium transition-colors"
           >
             Lihat demo menu →
           </button>
+        </div>
+
+        {/* Akun demo — supaya tester tahu harus login apa */}
+        <div className="max-w-md mx-auto mt-10 bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-left">
+          <p className="text-xs font-medium text-gray-900 mb-2">Akun demo</p>
+          <div className="flex flex-col gap-1.5 text-xs text-gray-500">
+            <p>
+              <span className="text-gray-700 font-medium">Seller</span> —
+              seller@kantin.test / Demo1234!
+            </p>
+            <p>
+              <span className="text-gray-700 font-medium">Admin</span> —
+              admin@kantin.com / Admin123!
+            </p>
+          </div>
         </div>
       </div>
 

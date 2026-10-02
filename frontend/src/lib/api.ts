@@ -28,6 +28,17 @@ async function publicFetch(
   return res;
 }
 
+/**
+ * Error HTTP untuk endpoint customer — menyimpan status HTTP sebagai
+ * properti `status` supaya pemanggil bisa membedakan 404 (resource hilang)
+ * dari error jaringan/5xx. Pesan error tetap sama → backward compatible.
+ */
+function httpError(message: string, status: number): Error {
+  const err = new Error(message) as Error & { status?: number };
+  err.status = status;
+  return err;
+}
+
 function authHeaders(token: string) {
   return {
     "Content-Type": "application/json",
@@ -220,7 +231,7 @@ export async function login(
 // ── Customer (PUBLIC) ─────────────────────────────────
 export async function getRestaurant(slug: string) {
   const res = await publicFetch(`${BASE_URL}/api/r/${slug}`);
-  if (!res.ok) throw new Error("Restoran tidak ditemukan");
+  if (!res.ok) throw httpError("Restoran tidak ditemukan", res.status);
   return res.json();
 }
 
@@ -229,7 +240,7 @@ export async function getMenu(slug: string, categoryId?: string) {
     ? `${BASE_URL}/api/r/${slug}/menu?category_id=${categoryId}`
     : `${BASE_URL}/api/r/${slug}/menu`;
   const res = await publicFetch(url);
-  if (!res.ok) throw new Error("Gagal memuat menu");
+  if (!res.ok) throw httpError("Gagal memuat menu", res.status);
   return res.json();
 }
 
@@ -239,13 +250,13 @@ export async function createOrder(slug: string, data: object) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("Gagal membuat pesanan");
+  if (!res.ok) throw httpError("Gagal membuat pesanan", res.status);
   return res.json();
 }
 
 export async function getOrderStatus(slug: string, orderId: string) {
   const res = await publicFetch(`${BASE_URL}/api/r/${slug}/orders/${orderId}`);
-  if (!res.ok) throw new Error("Order tidak ditemukan");
+  if (!res.ok) throw httpError("Order tidak ditemukan", res.status);
   return res.json();
 }
 

@@ -95,6 +95,43 @@ export default function LoginPage() {
           </form>
         </div>
 
+        {/* Akun demo — klik untuk isi form otomatis */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 mt-4">
+          <p className="text-xs font-medium text-gray-900 mb-2">Akun demo</p>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setEmail("seller@kantin.test");
+                setPassword("Demo1234!");
+              }}
+              className="w-full border border-gray-200 hover:border-gray-300 rounded-lg px-3 py-2 text-left transition-colors"
+            >
+              <span className="block text-xs font-medium text-gray-900">
+                Seller
+              </span>
+              <span className="block text-xs text-gray-500">
+                seller@kantin.test / Demo1234!
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail("admin@kantin.com");
+                setPassword("Admin123!");
+              }}
+              className="w-full border border-gray-200 hover:border-gray-300 rounded-lg px-3 py-2 text-left transition-colors"
+            >
+              <span className="block text-xs font-medium text-gray-900">
+                Admin
+              </span>
+              <span className="block text-xs text-gray-500">
+                admin@kantin.com / Admin123!
+              </span>
+            </button>
+          </div>
+        </div>
+
         <p className="text-center text-xs text-gray-500 mt-6">
           Kantin — Multi-tenant food ordering platform
         </p>

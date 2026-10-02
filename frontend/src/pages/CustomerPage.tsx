@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { WifiOff } from "lucide-react";
 import { getRestaurant, getMenu, createOrder } from "../lib/api";
 import { useCartStore } from "../store/cartStore";
 import { Skeleton } from "../components/shared/Skeleton";
@@ -98,6 +99,32 @@ function readJSON<T>(key: string, fallback: T): T {
   }
 }
 
+// Sesi order aktif masih layak dipakai kalau kunci ada, ada ordernya,
+// dan dibuat dalam 2 jam terakhir (sama aturan dengan restore saat mount).
+function isActiveOrderFresh(key: string): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { orderId?: string; timestamp?: number };
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    return (
+      !!parsed.orderId && !!parsed.timestamp && parsed.timestamp > twoHoursAgo
+    );
+  } catch {
+    return false;
+  }
+}
+
+// Baca status HTTP dari error API (lihat lib/api.ts).
+// null → error jaringan (fetch gagal) / error tanpa status.
+function getHttpStatus(err: unknown): number | null {
+  if (typeof err === "object" && err !== null && "status" in err) {
+    const status = (err as { status?: unknown }).status;
+    if (typeof status === "number") return status;
+  }
+  return null;
+}
+
 export default function CustomerPage() {
   const { slug } = useParams<{ slug: string }>();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -111,11 +138,24 @@ export default function CustomerPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  // Jenis error load resto: 404 (tidak ada) vs server/jaringan (bisa dicoba lagi)
+  const [errorKind, setErrorKind] = useState<"not_found" | "network" | null>(
+    null,
+  );
+  // Retry counter untuk fetch resto+menu dan polling order
+  const [fetchTick, setFetchTick] = useState(0);
+  const [pollTick, setPollTick] = useState(0);
+  // Status polling terakhir: null = OK, "network" = gagal memuat status
+  const [pollError, setPollError] = useState<string | null>(null);
   const [tableNumber, setTableNumber] = useState<string>("");
   // Total dari response server (sumber kebenaran setelah order dibuat)
   const [serverTotal, setServerTotal] = useState<number | null>(null);
   // Snapshot hitungan cart sebelum dibersihkan — untuk deteksi selisih
   const [clientTotal, setClientTotal] = useState<number | null>(null);
+  // Supaya pesan "sesi berakhir" hanya muncul sekali per order hilang
+  const orderGoneNotifiedRef = useRef<string | null>(null);
+  // Konfirmasi inline untuk "Batalkan pesanan" (hindari window.confirm)
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   const {
     items,
@@ -141,6 +181,8 @@ export default function CustomerPage() {
     if (!slug) return;
     const fetchData = async () => {
       setLoading(true);
+      setError("");
+      setErrorKind(null);
       try {
         const [restoData, menuData] = await Promise.all([
           getRestaurant(slug),
@@ -157,20 +199,36 @@ export default function CustomerPage() {
               arr.findIndex((x) => x.id === c.id) === i,
           );
         setCategories(cats);
-      } catch {
-        setError("Restoran tidak ditemukan");
+      } catch (err) {
+        if (getHttpStatus(err) === 404) {
+          setErrorKind("not_found");
+          setError("Restoran tidak ditemukan");
+        } else {
+          // Error jaringan / 5xx — jangan menyesatkan dengan "404"
+          setErrorKind("network");
+          setError(
+            "Tidak bisa terhubung ke server. Periksa koneksi lalu coba lagi.",
+          );
+        }
       } finally {
         setLoading(false);
       }
     };
     fetchData();
+  }, [slug, fetchTick]);
+
+  // Restore table number + order aktif — hanya saat mount / slug berubah
+  useEffect(() => {
+    if (!slug) return;
 
     // Read table number from URL
     const urlParams = new URLSearchParams(window.location.search);
     const tableFromUrl = urlParams.get("table");
     if (tableFromUrl) setTableNumber(tableFromUrl);
 
-    // Restore active order — kalau ada order aktif yang belum selesai
+    // Restore active order — kalau ada order aktif yang belum selesai.
+    // Validasi order-nya sendiri terjadi di polling: kalau 404/hilang,
+    // user dibalikkan ke menu (bukan terkunci di tracking).
     const savedOrder = localStorage.getItem(`kantin-active-order-${slug}`);
     if (savedOrder) {
       try {
@@ -204,6 +262,7 @@ export default function CustomerPage() {
   // Poll order status every 5 seconds
   useEffect(() => {
     if (step !== "tracking" || !orderId || !slug) return;
+    const activeKey = `kantin-active-order-${slug}`;
     const poll = async () => {
       try {
         const { getOrderStatus } = await import("../lib/api");
@@ -212,14 +271,45 @@ export default function CustomerPage() {
         if (typeof data.total_price === "number") {
           setServerTotal(data.total_price);
         }
-      } catch {
-        // silent
+        setPollError(null);
+        // Sinkronkan status terbaru ke localStorage (timestamp asli
+        // dipertahankan) supaya reload tidak kembali ke status basi.
+        try {
+          const raw = localStorage.getItem(activeKey);
+          if (raw) {
+            const parsed = JSON.parse(raw) as Record<string, unknown>;
+            localStorage.setItem(
+              activeKey,
+              JSON.stringify({ ...parsed, status: data.status }),
+            );
+          }
+        } catch {
+          // storage korup/penuh — abaikan, tracking tetap jalan
+        }
+      } catch (err) {
+        if (getHttpStatus(err) === 404) {
+          // Order hilang di server (mis. backend di-reset) — jangan biarkan
+          // user terkunci di tracking: bersihkan sesi, kembali ke menu.
+          localStorage.removeItem(activeKey);
+          setOrderId(null);
+          setOrderStatus("pending");
+          setPollError(null);
+          setStep("menu");
+          if (orderGoneNotifiedRef.current !== orderId) {
+            orderGoneNotifiedRef.current = orderId;
+            toast.error("Sesi pesanan sebelumnya sudah berakhir.");
+          }
+        } else {
+          // Error jaringan/5xx — tetap di tracking (tombol keluar selalu
+          // ada), tampilkan pesan + tombol coba lagi, jangan diam.
+          setPollError("network");
+        }
       }
     };
     poll();
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
-  }, [step, orderId, slug]);
+  }, [step, orderId, slug, pollTick]);
 
   const filteredMenu =
     activeCategory === "all"
@@ -256,6 +346,7 @@ export default function CustomerPage() {
     );
     setOrderId(order.id);
     setOrderStatus(order.status);
+    setPollError(null);
     clearCart();
     setStep("tracking");
 
@@ -311,8 +402,40 @@ export default function CustomerPage() {
     localStorage.removeItem(`kantin-active-order-${slug}`);
   };
 
+  // Soft exit: keluar dari tracking TANPA membuang sesi. localStorage,
+  // orderId, orderStatus, dan pollError dipertahankan sehingga user bisa
+  // kembali kapan saja lewat bar "Pesanan aktif" di menu.
+  const exitTracking = () => {
+    setConfirmingCancel(false);
+    setStep("menu");
+  };
+
+  // Membuang sesi tracking di sisi client saja. Backend tidak punya
+  // endpoint batal order — pesanan tetap hidup di server dan masih bisa
+  // diproses penjual; hanya tracking di browser ini yang dihapus.
+  const cancelOrder = () => {
+    clearActiveOrder();
+    setOrderId(null);
+    setOrderStatus("pending");
+    setPollError(null);
+    setConfirmingCancel(false);
+    setStep("menu");
+  };
+
+  // Retry fetch resto+menu (dipakai di layar error jaringan)
+  const retryFetch = () => setFetchTick((t) => t + 1);
+
   // Aman untuk status apa pun (termasuk yang belum ada di STATUS_INFO)
   const statusInfo = getStatusInfo(orderStatus);
+
+  // Bar "Pesanan aktif" di step menu: hanya kalau sesi order masih hidup
+  // (ada di memori, belum selesai, dan kunci localStorage masih <2 jam).
+  const activeOrderKey = slug ? `kantin-active-order-${slug}` : "";
+  const showActiveOrderBar =
+    !!orderId &&
+    orderStatus !== "done" &&
+    !!activeOrderKey &&
+    isActiveOrderFresh(activeOrderKey);
 
   if (loading)
     return (
@@ -359,17 +482,46 @@ export default function CustomerPage() {
     );
 
   if (error || !restaurant) {
+    const isNetworkError = errorKind === "network";
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="text-center">
-          <p className="text-5xl font-bold text-brand-700 mb-3">404</p>
-          <p className="text-gray-500 text-sm mb-6">
-            {error || "Restoran tidak ditemukan"}
-          </p>
-          <div className="flex items-center justify-center gap-3">
+          {isNetworkError ? (
+            <>
+              <div className="w-14 h-14 mx-auto mb-4 bg-amber-50 rounded-2xl flex items-center justify-center">
+                <WifiOff className="w-7 h-7 text-amber-600" />
+              </div>
+              <p className="text-lg font-medium text-gray-900 mb-1">
+                Tidak bisa terhubung ke server
+              </p>
+              <p className="text-gray-500 text-sm mb-6">
+                Periksa koneksi lalu coba lagi.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-5xl font-bold text-brand-700 mb-3">404</p>
+              <p className="text-gray-500 text-sm mb-6">
+                {error || "Restoran tidak ditemukan"}
+              </p>
+            </>
+          )}
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            {isNetworkError && (
+              <button
+                onClick={retryFetch}
+                className="bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
+              >
+                Coba lagi
+              </button>
+            )}
             <Link
               to="/"
-              className="bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
+              className={
+                isNetworkError
+                  ? "border border-gray-200 hover:border-gray-300 text-gray-600 text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
+                  : "bg-brand-700 hover:bg-brand-800 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
+              }
             >
               Kembali ke beranda
             </Link>
@@ -421,6 +573,14 @@ export default function CustomerPage() {
       {/* Tracking step */}
       {step === "tracking" && (
         <div className="max-w-lg mx-auto px-4 py-8">
+          {/* Jalan keluar — selalu tampil untuk SEMUA status, user tidak terkunci.
+              Soft exit: cukup pindah layar, sesi order TIDAK dihapus. */}
+          <button
+            onClick={exitTracking}
+            className="text-sm text-gray-500 mb-4 flex items-center gap-1"
+          >
+            ← Kembali ke menu
+          </button>
           <div className="bg-white rounded-2xl border border-gray-100 p-6">
             <h2 className="text-lg font-medium text-gray-900 mb-6">
               Status pesanan
@@ -480,6 +640,26 @@ export default function CustomerPage() {
                 </div>
               )}
 
+            {/* Polling gagal (jaringan/5xx) — jangan diam, tawarkan coba lagi */}
+            {pollError === "network" && (
+              <div className="mt-5 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-amber-800">
+                    Tidak bisa memuat status pesanan
+                  </p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    Periksa koneksi lalu coba lagi.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setPollTick((t) => t + 1)}
+                  className="text-xs font-medium text-brand-700 underline shrink-0"
+                >
+                  Coba lagi
+                </button>
+              </div>
+            )}
+
             {orderStatus === "done" && (
               <button
                 onClick={() => {
@@ -493,6 +673,41 @@ export default function CustomerPage() {
               </button>
             )}
           </div>
+
+          {/* Membuang sesi tracking — konfirmasi inline, sebelum dikonfirmasi
+              tidak ada yang dihapus. Catatan: tidak ada endpoint batal di
+              backend, ini murni buang tracking di sisi client (order tetap
+              hidup di server, penjual masih bisa memprosesnya). */}
+          {orderStatus !== "done" && (
+            <div className="mt-4 text-center">
+              {!confirmingCancel ? (
+                <button
+                  onClick={() => setConfirmingCancel(true)}
+                  className="text-xs text-gray-400 hover:text-red-600 underline transition-colors"
+                >
+                  Batalkan pesanan
+                </button>
+              ) : (
+                <div className="text-xs text-gray-500">
+                  <p>Yakin membatalkan pesanan?</p>
+                  <div className="mt-1.5 flex items-center justify-center gap-4">
+                    <button
+                      onClick={cancelOrder}
+                      className="text-red-600 font-medium hover:text-red-700"
+                    >
+                      Ya
+                    </button>
+                    <button
+                      onClick={() => setConfirmingCancel(false)}
+                      className="text-gray-500 font-medium hover:text-gray-700"
+                    >
+                      Tidak
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -712,7 +927,9 @@ export default function CustomerPage() {
           </div>
 
           {/* Menu list */}
-          <div className="px-4 flex flex-col gap-3 pb-32">
+          <div
+            className={`px-4 flex flex-col gap-3 ${showActiveOrderBar ? "pb-44" : "pb-32"}`}
+          >
             {filteredMenu.length === 0 ? (
               <div className="text-center py-12 text-gray-500 text-sm">
                 Tidak ada menu tersedia
@@ -792,25 +1009,48 @@ export default function CustomerPage() {
             )}
           </div>
 
-          {/* Cart bar — sticky bottom (disembunyikan kalau cart resto lain) */}
-          {cartCount > 0 && !cartMismatch && (
+          {/* Bottom bars — bar "Pesanan aktif" menumpuk DI ATAS bar cart
+              (satu wrapper fixed) supaya keduanya tetap bisa diklik */}
+          {showActiveOrderBar ||
+          (cartCount > 0 && !cartMismatch) ? (
             <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 pt-2 bg-linear-to-t from-gray-50">
-              <div className="max-w-lg mx-auto">
-                <button
-                  onClick={() => setStep("cart")}
-                  className="w-full bg-brand-700 hover:bg-brand-800 text-white rounded-xl py-3.5 flex items-center justify-between px-5 transition-colors"
-                >
-                  <span className="bg-white text-brand-700 text-xs font-medium px-2 py-0.5 rounded-full">
-                    {cartCount} item
-                  </span>
-                  <span className="text-sm font-medium">Lihat keranjang</span>
-                  <span className="text-sm font-medium">
-                    {formatPrice(total())}
-                  </span>
-                </button>
+              <div className="max-w-lg mx-auto flex flex-col gap-2">
+                {showActiveOrderBar && (
+                  <div className="bg-white border border-gray-100 rounded-xl shadow-md px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-gray-900">
+                        Pesanan aktif
+                      </p>
+                      <p className={`text-xs mt-0.5 ${statusInfo.color}`}>
+                        {statusInfo.label}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setStep("tracking")}
+                      className="shrink-0 bg-brand-700 hover:bg-brand-800 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                    >
+                      Lihat status →
+                    </button>
+                  </div>
+                )}
+
+                {cartCount > 0 && !cartMismatch && (
+                  <button
+                    onClick={() => setStep("cart")}
+                    className="w-full bg-brand-700 hover:bg-brand-800 text-white rounded-xl py-3.5 flex items-center justify-between px-5 transition-colors"
+                  >
+                    <span className="bg-white text-brand-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                      {cartCount} item
+                    </span>
+                    <span className="text-sm font-medium">Lihat keranjang</span>
+                    <span className="text-sm font-medium">
+                      {formatPrice(total())}
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       )}
     </div>
