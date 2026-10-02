@@ -280,7 +280,7 @@ describe("refresh token flow", () => {
       ),
     );
 
-    const data = await login("seller@kantin.test", "rahasia");
+    const data = await login("penjual@contoh.test", "rahasia");
 
     expect(urlOf(0)).toBe(LOGIN_URL);
     expect(data.refresh_token).toBe("refresh-1");

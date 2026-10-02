@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { login } from "../lib/api";
 import { errorMessage } from "../lib/errorMessage";
 import { useAuthStore } from "../store/authStore";
+import WhatsAppModal from "../components/shared/WhatsAppModal";
+import { DEMO_MODAL } from "../lib/whatsapp";
 import toast from "react-hot-toast";
 
 export default function LoginPage() {
@@ -12,6 +14,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showDemoModal, setShowDemoModal] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +43,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-brand-500 rounded-xl mb-4">
+          <div className="inline-flex items-center justify-center w-12 h-12 bg-brand-700 rounded-xl mb-4">
             {/* <span className="text-white text-xl font-bold">K</span> */}
             <img src="/logo.svg" alt="Kantin" className="w-8 h-8" />
           </div>
@@ -95,47 +98,27 @@ export default function LoginPage() {
           </form>
         </div>
 
-        {/* Akun demo — klik untuk isi form otomatis */}
-        <div className="bg-white rounded-2xl border border-gray-100 p-4 mt-4">
-          <p className="text-xs font-medium text-gray-900 mb-2">Akun demo</p>
-          <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setEmail("seller@kantin.test");
-                setPassword("Demo1234!");
-              }}
-              className="w-full border border-gray-200 hover:border-gray-300 rounded-lg px-3 py-2 text-left transition-colors"
-            >
-              <span className="block text-xs font-medium text-gray-900">
-                Seller
-              </span>
-              <span className="block text-xs text-gray-500">
-                seller@kantin.test / Demo1234!
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEmail("admin@kantin.com");
-                setPassword("Admin123!");
-              }}
-              className="w-full border border-gray-200 hover:border-gray-300 rounded-lg px-3 py-2 text-left transition-colors"
-            >
-              <span className="block text-xs font-medium text-gray-900">
-                Admin
-              </span>
-              <span className="block text-xs text-gray-500">
-                admin@kantin.com / Admin123!
-              </span>
-            </button>
-          </div>
-        </div>
+        {/* CTA akun demo — kredensial tidak dipublikasikan, dibagikan via WhatsApp */}
+        <button
+          type="button"
+          onClick={() => setShowDemoModal(true)}
+          className="w-full mt-4 bg-white border border-gray-100 hover:border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+        >
+          Tertarik coba dashboard penjual?{" "}
+          <span className="font-medium text-brand-700">Minta akun demo →</span>
+        </button>
 
         <p className="text-center text-xs text-gray-500 mt-6">
           Kantin — Multi-tenant food ordering platform
         </p>
       </div>
+
+      {showDemoModal && (
+        <WhatsAppModal
+          content={DEMO_MODAL}
+          onClose={() => setShowDemoModal(false)}
+        />
+      )}
     </div>
   );
 }

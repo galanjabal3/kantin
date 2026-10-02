@@ -1,17 +1,16 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { BarChart3, Receipt, UtensilsCrossed, Zap } from "lucide-react";
+import { BarChart3, Receipt, Zap } from "lucide-react";
+import WhatsAppModal from "../components/shared/WhatsAppModal";
+import {
+  DEMO_MODAL,
+  REGISTER_MODAL,
+  type WaModalContent,
+} from "../lib/whatsapp";
 
 export default function LandingPage() {
   const navigate = useNavigate();
-  const [showModal, setShowModal] = useState(false);
-
-  const ADMIN_WHATSAPP = import.meta.env.VITE_ADMIN_WHATSAPP || "6281234567890";
-  // const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || "admin@kantin.app";
-
-  const waLink = `https://wa.me/${ADMIN_WHATSAPP}?text=${encodeURIComponent(
-    "Halo, saya ingin mendaftarkan restoran saya di Kantin. Mohon info lebih lanjut.",
-  )}`;
+  const [modal, setModal] = useState<WaModalContent | null>(null);
 
   const features = [
     {
@@ -33,60 +32,15 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Modal pendaftaran */}
-      {showModal && (
-        <div
-          className="absolute inset-0 bg-black/40 flex items-center justify-center z-50 px-4"
-          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
-          onClick={() => setShowModal(false)}
-        >
-          <div
-            className="bg-white rounded-2xl p-6 max-w-sm w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="w-12 h-12 bg-brand-50 rounded-xl flex items-center justify-center mb-4">
-              <UtensilsCrossed className="w-6 h-6 text-brand-600" />
-            </div>
-            <h2
-              className="text-xl text-gray-900 mb-2"
-              style={{ fontFamily: "Playfair Display, serif" }}
-            >
-              Daftarkan restoranmu
-            </h2>
-            <p className="text-sm text-gray-500 mb-6 leading-relaxed">
-              Pendaftaran resto dilakukan melalui admin Kantin. Hubungi kami via
-              WhatsApp atau email di bawah ini.
-            </p>
-            <div className="flex flex-col gap-3">
-              <a
-                href={waLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full bg-green-500 hover:bg-green-600 text-white text-sm font-medium py-3 rounded-xl text-center transition-colors flex items-center justify-center gap-2"
-              >
-                Hubungi via WhatsApp
-              </a>
-              {/* <a
-                href={`mailto:${ADMIN_EMAIL}?subject=Pendaftaran Resto Kantin`}
-                className="w-full border border-gray-200 hover:border-gray-300 text-gray-600 text-sm font-medium py-3 rounded-xl text-center transition-colors"
-              >
-                Kirim email ke {ADMIN_EMAIL}
-              </a> */}
-            </div>
-            <button
-              onClick={() => setShowModal(false)}
-              className="w-full mt-3 text-xs text-gray-500 hover:text-gray-600 py-2 transition-colors"
-            >
-              Tutup
-            </button>
-          </div>
-        </div>
+      {/* Modal WhatsApp (pendaftaran resto / minta akun demo) */}
+      {modal && (
+        <WhatsAppModal content={modal} onClose={() => setModal(null)} />
       )}
 
       {/* Navbar — tidak berubah */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-gray-100 max-w-5xl mx-auto">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-brand-700 rounded-lg flex items-center justify-center">
             {/* <span className="text-white font-bold text-sm">K</span> */}
             <img src="/logo.svg" alt="Kantin" className="w-8 h-8" />
           </div>
@@ -123,9 +77,8 @@ export default function LandingPage() {
           tanpa login untuk customer.
         </p>
         <div className="flex items-center justify-center gap-4 flex-wrap">
-          {/* ← INI YANG BERUBAH */}
           <button
-            onClick={() => setShowModal(true)}
+            onClick={() => setModal(REGISTER_MODAL)}
             className="bg-brand-700 hover:bg-brand-800 text-white px-6 py-3 rounded-xl text-sm font-medium transition-colors"
           >
             Daftarkan resto kamu
@@ -138,20 +91,14 @@ export default function LandingPage() {
           </button>
         </div>
 
-        {/* Akun demo — supaya tester tahu harus login apa */}
-        <div className="max-w-md mx-auto mt-10 bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-left">
-          <p className="text-xs font-medium text-gray-900 mb-2">Akun demo</p>
-          <div className="flex flex-col gap-1.5 text-xs text-gray-500">
-            <p>
-              <span className="text-gray-700 font-medium">Seller</span> —
-              seller@kantin.test / Demo1234!
-            </p>
-            <p>
-              <span className="text-gray-700 font-medium">Admin</span> —
-              admin@kantin.com / Admin123!
-            </p>
-          </div>
-        </div>
+        {/* CTA akun demo — kredensial tidak dipublikasikan, dibagikan via WhatsApp */}
+        <button
+          type="button"
+          onClick={() => setModal(DEMO_MODAL)}
+          className="mt-10 mx-auto block text-sm font-medium text-brand-700 hover:text-brand-800 transition-colors"
+        >
+          Tertarik coba dashboard penjual? Minta akun demo →
+        </button>
       </div>
 
       {/* Features & Footer — tidak berubah */}
