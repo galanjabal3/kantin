@@ -4,7 +4,7 @@ from app.core.database import get_db
 from app.core.ratelimit import limiter, menu_rate_limit, order_rate_limit
 from app.models.restaurant import Restaurant
 from app.models.menu import MenuItem
-from app.models.order import Order, OrderItem, OrderSource
+from app.models.order import Order, OrderItem, OrderSource, OrderStatus
 from app.models.customer import Customer
 from app.schemas.order import OrderCreate, OrderResponse, MAX_ORDER_TOTAL
 from app.schemas.menu import MenuItemResponse
@@ -137,6 +137,21 @@ def create_order(
     return order
 
 
+def _find_order_by_slug(db: Session, slug: str, order_id: str) -> Optional[Order]:
+    """Cari order yang di-join ke restoran dengan `slug` cocok (guard IDOR).
+
+    Dipakai bersama oleh track status dan pembatalan: order milik restoran
+    lain / id yang tidak ada → None → 404 (jangan bocorkan keberadaan order).
+    """
+    return (
+        db.query(Order)
+        .join(Restaurant, Order.restaurant_id == Restaurant.id)
+        .filter(Order.id == order_id, Restaurant.slug == slug)
+        .options(joinedload(Order.items))
+        .first()
+    )
+
+
 @router.get("/{slug}/orders/{order_id}", response_model=OrderResponse)
 def get_order_status(
     slug: str,
@@ -147,13 +162,44 @@ def get_order_status(
 
     Order hanya boleh dibaca lewat slug restoran pemiliknya (fix IDOR / B4).
     """
-    order = (
-        db.query(Order)
-        .join(Restaurant, Order.restaurant_id == Restaurant.id)
-        .filter(Order.id == order_id, Restaurant.slug == slug)
-        .options(joinedload(Order.items))
-        .first()
-    )
+    order = _find_order_by_slug(db, slug, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order tidak ditemukan")
+    return order
+
+
+@router.post("/{slug}/orders/{order_id}/cancel", response_model=OrderResponse)
+@limiter.limit(order_rate_limit)
+def cancel_order(
+    request: Request,
+    slug: str,
+    order_id: str,
+    db: Session = Depends(get_db),
+):
+    """Batalkan pesanan pelanggan — persist ke DB (bukan buang sesi client).
+
+    Kontrak:
+      - 200 + OrderResponse : order masih `pending` → jadi `cancelled`
+      - 200 + OrderResponse : sudah `cancelled`      → idempoten (retry aman)
+      - 409                 : `preparing`/`ready`/`done` → sudah diproses
+      - 404                 : order tidak ada / slug tidak cocok (guard IDOR)
+    """
+    order = _find_order_by_slug(db, slug, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order tidak ditemukan")
+
+    # Idempoten: klik dobel / retry setelah koneksi pulih tetap 200 dan
+    # mengembalikan order apa adanya.
+    if order.status == OrderStatus.cancelled:
+        return order
+
+    if order.status != OrderStatus.pending:
+        raise HTTPException(
+            status_code=409,
+            detail="Pesanan sudah diproses penjual dan tidak bisa dibatalkan",
+        )
+
+    order.status = OrderStatus.cancelled
+    db.commit()
+    db.refresh(order)
     return order

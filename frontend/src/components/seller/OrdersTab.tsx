@@ -34,6 +34,7 @@ const STATUS_LABEL: Record<string, string> = {
   preparing: "Diproses",
   ready: "Siap",
   done: "Selesai",
+  cancelled: "Dibatalkan",
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -41,6 +42,9 @@ const STATUS_COLOR: Record<string, string> = {
   preparing: "bg-blue-50 text-blue-700",
   ready: "bg-green-50 text-green-700",
   done: "bg-gray-100 text-gray-600",
+  // Merah konsisten dengan badge status lain (bg-*-50 / text-*-700);
+  // red-700 (#B91C1C) di atas red-50 (#FEF2F2) = 5.91:1 → lolos WCAG AA.
+  cancelled: "bg-red-50 text-red-700",
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -130,8 +134,23 @@ export default function OrdersTab({ token }: { token: string }) {
       </div>
     );
 
-  const todayOrders = orders.filter((o) => isToday(o.created_at));
-  const activeOrders = orders.filter((o) => o.status !== "done");
+  // Statistik = beban kerja hari ini. Order yang dibatalkan pelanggan TIDAK
+  // dihitung di kartu mana pun (Total hari ini / Pending / Diproses / Siap):
+  // pembatalan punya section sendiri "Dibatalkan" di bawah, sehingga penjual
+  // tetap tahu keberadaannya tanpa angka antrean jadi menyesatkan.
+  const statOrders = orders.filter(
+    (o) => isToday(o.created_at) && o.status !== "cancelled",
+  );
+  // Order yang dibatalkan KELUAR dari papan kerja (bukan "aktif" lagi).
+  const activeOrders = orders.filter(
+    (o) => o.status !== "done" && o.status !== "cancelled",
+  );
+  const cancelledOrders = orders
+    .filter((o) => o.status === "cancelled")
+    .sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
   const doneOrders = orders
     .filter((o) => o.status === "done" && isToday(o.created_at)) // ← tambah isToday
     .sort(
@@ -151,18 +170,18 @@ export default function OrdersTab({ token }: { token: string }) {
       {/* <div className="grid grid-cols-4 gap-4"> */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         {[
-          { label: "Total hari ini", value: todayOrders.length },
+          { label: "Total hari ini", value: statOrders.length },
           {
             label: "Pending",
-            value: todayOrders.filter((o) => o.status === "pending").length,
+            value: statOrders.filter((o) => o.status === "pending").length,
           },
           {
             label: "Diproses",
-            value: todayOrders.filter((o) => o.status === "preparing").length,
+            value: statOrders.filter((o) => o.status === "preparing").length,
           },
           {
             label: "Siap",
-            value: todayOrders.filter((o) => o.status === "ready").length,
+            value: statOrders.filter((o) => o.status === "ready").length,
           },
         ].map((s) => (
           <div
@@ -237,6 +256,43 @@ export default function OrdersTab({ token }: { token: string }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Cancelled orders — section terpisah di bawah papan kerja: penjual
+          TAHU pesanan dibatalkan, tanpa tombol aksi (status terminal) dan
+          tanpa ikut menghitung statistik. */}
+      {cancelledOrders.length > 0 && (
+        <div>
+          <p className="text-xs text-gray-500 font-medium mb-3 uppercase tracking-wide">
+            Dibatalkan ({cancelledOrders.length})
+          </p>
+
+          <div className="flex flex-col gap-2">
+            {cancelledOrders.map((order) => (
+              <div
+                key={order.id}
+                className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 flex items-center justify-between gap-3"
+              >
+                {/* LEFT */}
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm text-gray-500 font-medium truncate">
+                    {order.customer_name || "Tanpa nama"}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {order.items.length} item · {formatPrice(order.total_price)}
+                  </span>
+                </div>
+
+                {/* RIGHT — badge status saja, tidak ada STATUS_FLOW */}
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${STATUS_COLOR[order.status]}`}
+                >
+                  {STATUS_LABEL[order.status]}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

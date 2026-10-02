@@ -15,6 +15,7 @@
 - **Keranjang & checkout** — keranjang persist (Zustand + localStorage), cukup isi nama (dan nomor meja bila diaktifkan).
 - **Tracking live** — status pesanan di-polling tiap 5 detik: `pending → preparing → ready → done`.
 - **Riwayat di perangkat** — bar "Pesanan aktif" dan riwayat pesanan per resto tersimpan di `localStorage`; *soft exit* keluar dari tracking tanpa menghapus sesi.
+- **Batalkan pesanan (hanya saat masih `pending`)** — status "Dibatalkan" langsung terlihat di dashboard penjual; pembatalan di-*persist* ke server, bukan sekadar menghapus sesi di browser.
 - **Toko tutup ditolak** — API menolak order baru saat resto nonaktif atau sedang ditutup.
 
 ### 🧑‍🍳 Penjual (`/dashboard`)
@@ -194,7 +195,7 @@ kantin/
 │   │   └── main.py             # FastAPI app, CORS, mounting router, /health, jalankan migrasi
 │   ├── alembic/                # migrasi skema (versions/)
 │   ├── scripts/seed_demo.py    # seed demo idempoten
-│   ├── tests/                  # 92 test pytest
+│   ├── tests/                  # 105 test pytest
 │   ├── requirements.txt · alembic.ini · render.yaml · Procfile
 │   └── .env.example
 ├── frontend/
@@ -219,11 +220,11 @@ Rute frontend: `/` (landing / redirect sesuai role), `/r/:slug` (menu pelanggan)
 ## 🧪 Testing
 
 ```bash
-# Backend — 92 test (SQLite in-memory; jalankan dengan venv backend aktif)
+# Backend — 105 test (SQLite in-memory; jalankan dengan venv backend aktif)
 cd backend
 pytest -q
 
-# Frontend — 54 test unit
+# Frontend — 61 test unit
 cd frontend
 npx vitest run
 

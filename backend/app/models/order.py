@@ -11,6 +11,10 @@ class OrderStatus(str, enum.Enum):
     preparing = "preparing"
     ready = "ready"
     done = "done"
+    # Terminal — hasil pembatalan pelanggan (hanya dari status pending).
+    # Nilai enum di DB ditambahkan oleh revisi alembic
+    # c7d5e8f2a1b4 (ALTER TYPE orderstatus ADD VALUE ... 'cancelled').
+    cancelled = "cancelled"
 
 
 class OrderSource(str, enum.Enum):

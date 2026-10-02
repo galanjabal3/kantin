@@ -39,6 +39,18 @@ function httpError(message: string, status: number): Error {
   return err;
 }
 
+/** Ambil `detail` string dari body error FastAPI; fallback ke pesan umum. */
+async function httpDetailError(res: Response, fallback: string): Promise<Error> {
+  let detail = "";
+  try {
+    const body = (await res.json()) as { detail?: unknown };
+    if (typeof body?.detail === "string") detail = body.detail;
+  } catch {
+    // body bukan JSON (mis. 429 plain) → pakai fallback
+  }
+  return httpError(detail || fallback, res.status);
+}
+
 function authHeaders(token: string) {
   return {
     "Content-Type": "application/json",
@@ -257,6 +269,26 @@ export async function createOrder(slug: string, data: object) {
 export async function getOrderStatus(slug: string, orderId: string) {
   const res = await publicFetch(`${BASE_URL}/api/r/${slug}/orders/${orderId}`);
   if (!res.ok) throw httpError("Order tidak ditemukan", res.status);
+  return res.json();
+}
+
+/**
+ * Batalkan pesanan pelanggan (persist ke server — bukan buang sesi lokal).
+ *
+ * Endpoint publik seperti track status: tanpa authHeaders, tapi tetap guard
+ * slug di server (404 bila order bukan milik slug ini). Pesan error memakai
+ * `detail` dari server (mis. 409 "sudah diproses penjual") supaya toast user
+ * menjelaskan alasan, bukan sekadar "gagal".
+ */
+export async function cancelOrder(slug: string, orderId: string) {
+  const res = await publicFetch(
+    `${BASE_URL}/api/r/${slug}/orders/${orderId}/cancel`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  if (!res.ok) throw await httpDetailError(res, "Gagal membatalkan pesanan");
   return res.json();
 }
 

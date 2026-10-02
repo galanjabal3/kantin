@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { WifiOff } from "lucide-react";
-import { getRestaurant, getMenu, createOrder } from "../lib/api";
+import {
+  getRestaurant,
+  getMenu,
+  createOrder,
+  cancelOrder as cancelOrderApi,
+} from "../lib/api";
+import { errorMessage } from "../lib/errorMessage";
 import { useCartStore } from "../store/cartStore";
 import { Skeleton } from "../components/shared/Skeleton";
 import MenuImage from "../components/MenuImage";
@@ -65,6 +71,14 @@ const STATUS_INFO: Record<string, StatusInfo> = {
     desc: "Pesanan sudah selesai, terima kasih!",
     color: "text-gray-500",
     step: 4,
+  },
+  cancelled: {
+    label: "Dibatalkan",
+    desc: "Pesanan ini dibatalkan dan tidak akan diproses penjual",
+    color: "text-red-600",
+    // Bukan bagian dari alur pending → done: tidak ada langkah yang
+    // disorot di progress bar (step 0 = semua titik tetap abu-abu).
+    step: 0,
   },
 };
 
@@ -210,6 +224,8 @@ export default function CustomerPage() {
   const orderGoneNotifiedRef = useRef<string | null>(null);
   // Konfirmasi inline untuk "Batalkan pesanan" (hindari window.confirm)
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  // Sedang memanggil API batal — kunci tombol "Ya" supaya tidak dobel-klik
+  const [cancelling, setCancelling] = useState(false);
 
   const {
     items,
@@ -297,7 +313,8 @@ export default function CustomerPage() {
           parsed.orderId &&
           parsed.timestamp &&
           parsed.timestamp > twoHoursAgo &&
-          parsed.status !== "done"
+          parsed.status !== "done" &&
+          parsed.status !== "cancelled"
         ) {
           setOrderId(parsed.orderId);
           setOrderStatus(parsed.status || "pending");
@@ -456,6 +473,31 @@ export default function CustomerPage() {
     localStorage.removeItem(`kantin-active-order-${slug}`);
   };
 
+  // Perbarui status entri riwayat milik order ini IN-PLACE (tanpa unshift,
+  // urutan riwayat tidak berubah) — dipakai setelah pembatalan berhasil
+  // supaya riwayat tidak selamanya menampilkan "Menunggu konfirmasi".
+  const updateHistoryStatus = (id: string, status: string) => {
+    try {
+      const stored = readJSON<unknown>("kantin-history", []);
+      if (!Array.isArray(stored)) return;
+      const history = (stored as Array<Record<string, unknown>>).map(
+        (entry) =>
+          entry &&
+          typeof entry === "object" &&
+          entry.id === id &&
+          entry.slug === slug
+            ? { ...entry, status }
+            : entry,
+      );
+      localStorage.setItem(
+        "kantin-history",
+        JSON.stringify(history.slice(0, 20)),
+      );
+    } catch {
+      // data korup/penuh — abaikan
+    }
+  };
+
   // Soft exit: keluar dari tracking TANPA membuang sesi. localStorage,
   // orderId, orderStatus, dan pollError dipertahankan sehingga user bisa
   // kembali kapan saja lewat bar "Pesanan aktif" di menu.
@@ -464,15 +506,30 @@ export default function CustomerPage() {
     setStep("menu");
   };
 
-  // Membuang sesi tracking di sisi client saja. Backend tidak punya
-  // endpoint batal order — pesanan tetap hidup di server dan masih bisa
-  // diproses penjual; hanya tracking di browser ini yang dihapus.
-  const cancelOrder = () => {
+  // Batalkan pesanan: PANGGIL API dulu (persist ke DB, hanya saat masih
+  // pending — backend membalas 409 bila sudah diproses penjual). Sesi lokal
+  // hanya dibuang kalau server benar-benar menerima pembatalan; kalau gagal,
+  // tracking tetap utuh supaya user tidak mengira pesanan sudah batal.
+  const cancelOrder = async () => {
+    if (!slug || !orderId || cancelling) return;
+    setCancelling(true);
+    try {
+      await cancelOrderApi(slug, orderId);
+    } catch (err) {
+      toast.error(errorMessage(err, "Gagal membatalkan pesanan"));
+      setCancelling(false);
+      return;
+    }
+
+    // Server sudah menyimpan status `cancelled` → rapikan sisi client:
+    // buang sesi tracking + tandai riwayat lokal sebagai "Dibatalkan".
+    updateHistoryStatus(orderId, "cancelled");
     clearActiveOrder();
     setOrderId(null);
     setOrderStatus("pending");
     setPollError(null);
     setConfirmingCancel(false);
+    setCancelling(false);
     setStep("menu");
   };
 
@@ -488,6 +545,7 @@ export default function CustomerPage() {
   const showActiveOrderBar =
     !!orderId &&
     orderStatus !== "done" &&
+    orderStatus !== "cancelled" &&
     !!activeOrderKey &&
     isActiveOrderFresh(activeOrderKey);
 
@@ -732,11 +790,12 @@ export default function CustomerPage() {
             )}
           </div>
 
-          {/* Membuang sesi tracking — konfirmasi inline, sebelum dikonfirmasi
-              tidak ada yang dihapus. Catatan: tidak ada endpoint batal di
-              backend, ini murni buang tracking di sisi client (order tetap
-              hidup di server, penjual masih bisa memprosesnya). */}
-          {orderStatus !== "done" && (
+          {/* Batalkan pesanan — konfirmasi inline; API dipanggil hanya setelah
+              user menekan "Ya". Selama request berjalan tombol terkunci
+              (cancelling) supaya tidak dobel-klik; kalau server menolak
+              (409 sudah diproses / jaringan gagal) sesi tracking TIDAK
+              dihapus dan pesan error ditampilkan lewat toast. */}
+          {orderStatus !== "done" && orderStatus !== "cancelled" && (
             <div className="mt-4 text-center">
               {!confirmingCancel ? (
                 <button
@@ -751,13 +810,15 @@ export default function CustomerPage() {
                   <div className="mt-1.5 flex items-center justify-center gap-4">
                     <button
                       onClick={cancelOrder}
-                      className="text-red-600 font-medium hover:text-red-700"
+                      disabled={cancelling}
+                      className="text-red-600 font-medium hover:text-red-700 disabled:text-red-300 disabled:cursor-wait"
                     >
-                      Ya
+                      {cancelling ? "Membatalkan..." : "Ya"}
                     </button>
                     <button
                       onClick={() => setConfirmingCancel(false)}
-                      className="text-gray-500 font-medium hover:text-gray-700"
+                      disabled={cancelling}
+                      className="text-gray-500 font-medium hover:text-gray-700 disabled:text-gray-300"
                     >
                       Tidak
                     </button>

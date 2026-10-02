@@ -12,6 +12,7 @@ describe('API client', () => {
     expect(typeof api.getMenu).toBe('function')
     expect(typeof api.createOrder).toBe('function')
     expect(typeof api.getOrderStatus).toBe('function')
+    expect(typeof api.cancelOrder).toBe('function')
     expect(typeof api.getMyRestaurant).toBe('function')
     expect(typeof api.getSellerMenu).toBe('function')
     expect(typeof api.createMenuItem).toBe('function')
@@ -25,6 +26,59 @@ describe('API client', () => {
     expect(typeof api.getAllRestaurants).toBe('function')
     expect(typeof api.createRestaurant).toBe('function')
     expect(typeof api.updateRestaurant).toBe('function')
+  })
+})
+
+describe('cancelOrder (Opsi A — persist)', () => {
+  it('POST ke /api/r/{slug}/orders/{id}/cancel tanpa header auth', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'o1', status: 'cancelled' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await api.cancelOrder('warung-bu-siti', 'o1')
+
+    expect(result).toEqual({ id: 'o1', status: 'cancelled' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('http://localhost:8000/api/r/warung-bu-siti/orders/o1/cancel')
+    expect(init.method).toBe('POST')
+    expect(init.headers).toEqual({ 'Content-Type': 'application/json' })
+  })
+
+  it('respons !ok → melempar pesan `detail` dari server (409)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          detail: 'Pesanan sudah diproses penjual dan tidak bisa dibatalkan',
+        }),
+      }),
+    )
+
+    await expect(api.cancelOrder('warung-bu-siti', 'o1')).rejects.toThrow(
+      'Pesanan sudah diproses penjual dan tidak bisa dibatalkan',
+    )
+  })
+
+  it('body error bukan JSON → fallback pesan umum', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new Error('bukan json')
+        },
+      }),
+    )
+
+    await expect(api.cancelOrder('warung-bu-siti', 'o1')).rejects.toThrow(
+      'Gagal membatalkan pesanan',
+    )
   })
 })
 

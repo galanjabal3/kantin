@@ -4,12 +4,20 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import CustomerPage from "../CustomerPage";
 import { useCartStore } from "../../store/cartStore";
 import * as api from "../../lib/api";
+import toast from "react-hot-toast";
 
 vi.mock("../../lib/api", () => ({
   getRestaurant: vi.fn(),
   getMenu: vi.fn(),
   createOrder: vi.fn(),
   getOrderStatus: vi.fn(),
+  cancelOrder: vi.fn(),
+}));
+
+// Toast tidak dirender di jsdom (tanpa <Toaster/>) — di-mock supaya bisa
+// dipastikan pesan error pembatalan benar-benar dikirim ke user.
+vi.mock("react-hot-toast", () => ({
+  default: { error: vi.fn(), success: vi.fn() },
 }));
 
 const mockedApi = api as unknown as {
@@ -17,6 +25,7 @@ const mockedApi = api as unknown as {
   getMenu: ReturnType<typeof vi.fn>;
   createOrder: ReturnType<typeof vi.fn>;
   getOrderStatus: ReturnType<typeof vi.fn>;
+  cancelOrder: ReturnType<typeof vi.fn>;
 };
 
 const restaurant = {
@@ -66,6 +75,7 @@ beforeEach(() => {
   mockedApi.getRestaurant.mockResolvedValue(restaurant);
   mockedApi.getMenu.mockResolvedValue(menu);
   mockedApi.getOrderStatus.mockResolvedValue({ status: "pending" });
+  mockedApi.cancelOrder.mockResolvedValue({ id: "ORD-1", status: "cancelled" });
 });
 
 describe("C1 — tracking aman untuk status tak dikenal", () => {
@@ -334,8 +344,9 @@ describe("S1 — soft exit setelah checkout", () => {
   });
 });
 
-describe("S2 — batalkan pesanan (buang sesi di sisi client)", () => {
-  it("konfirmasi Ya → kunci localStorage terhapus & bar hilang", async () => {
+describe("S2 — batalkan pesanan (PERSIST ke server, sesi lokal hanya ikut)", () => {
+  // Sesi tracking + satu entri riwayat (status pending) untuk slug yang sama
+  function seedSession() {
     localStorage.setItem(
       "kantin-active-order-warung-bu-siti",
       JSON.stringify({
@@ -344,40 +355,99 @@ describe("S2 — batalkan pesanan (buang sesi di sisi client)", () => {
         timestamp: Date.now(),
       }),
     );
+    localStorage.setItem(
+      "kantin-history",
+      JSON.stringify([
+        {
+          id: "ORD-1",
+          restaurant: "Warung Bu Siti",
+          slug: "warung-bu-siti",
+          total: 15000,
+          status: "pending",
+          created_at: "2026-06-15T12:00:00Z",
+        },
+      ]),
+    );
+  }
+
+  it("Ya → panggil API (slug+id benar), sesi hilang, riwayat jadi Dibatalkan", async () => {
+    seedSession();
     mockedApi.getOrderStatus.mockResolvedValue({ status: "pending" });
 
     renderPage();
 
-    // Minta batal → muncul konfirmasi inline, belum ada yang dihapus
+    // "Tidak" → tidak ada panggilan API, sesi tetap utuh
     fireEvent.click(
       await screen.findByRole("button", { name: /Batalkan pesanan/ }),
     );
-    expect(await screen.findByText("Yakin membatalkan pesanan?")).toBeInTheDocument();
     expect(
-      localStorage.getItem("kantin-active-order-warung-bu-siti"),
-    ).not.toBeNull();
-
-    // Konfirmasi "Tidak" membatalkan tanpa efek apa pun
-    fireEvent.click(screen.getByRole("button", { name: "Tidak" }));
-    expect(
-      localStorage.getItem("kantin-active-order-warung-bu-siti"),
-    ).not.toBeNull();
-    expect(
-      screen.getByRole("button", { name: /Batalkan pesanan/ }),
+      await screen.findByText("Yakin membatalkan pesanan?"),
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Tidak" }));
+    expect(mockedApi.cancelOrder).not.toHaveBeenCalled();
+    expect(
+      localStorage.getItem("kantin-active-order-warung-bu-siti"),
+    ).not.toBeNull();
 
-    // Konfirmasi "Ya" → buang sesi, kembali ke menu, bar tidak tampil
+    // "Ya" → API dipanggil DULU dengan slug + id order yang benar
     fireEvent.click(
       screen.getByRole("button", { name: /Batalkan pesanan/ }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Ya" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ya" }));
 
     expect(await screen.findByText("Semua")).toBeInTheDocument();
+    expect(mockedApi.cancelOrder).toHaveBeenCalledTimes(1);
+    expect(mockedApi.cancelOrder).toHaveBeenCalledWith(
+      "warung-bu-siti",
+      "ORD-1",
+    );
+
+    // Server menerima pembatalan → sesi tracking dibuang, bar hilang
     expect(
       localStorage.getItem("kantin-active-order-warung-bu-siti"),
     ).toBeNull();
-    expect(screen.queryByText("Pesanan aktif")).not.toBeInTheDocument();
     expect(screen.queryByText("Status pesanan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pesanan aktif")).not.toBeInTheDocument();
+
+    // Riwayat lokal ikut menampilkan label "Dibatalkan"
+    const card = (await screen.findByText("Riwayat pesanan")).parentElement!;
+    expect(within(card).getByText("Dibatalkan")).toBeInTheDocument();
+    expect(
+      within(card).queryByText("Menunggu konfirmasi"),
+    ).not.toBeInTheDocument();
+    const stored = JSON.parse(localStorage.getItem("kantin-history")!);
+    expect(stored[0].status).toBe("cancelled");
+  });
+
+  it("API gagal (409/jaringan) → sesi TIDAK hilang + toast error", async () => {
+    seedSession();
+    mockedApi.getOrderStatus.mockResolvedValue({ status: "pending" });
+    mockedApi.cancelOrder.mockRejectedValue(
+      Object.assign(
+        new Error("Pesanan sudah diproses penjual dan tidak bisa dibatalkan"),
+        { status: 409 },
+      ),
+    );
+
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Batalkan pesanan/ }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Ya" }));
+
+    await waitFor(() => expect(mockedApi.cancelOrder).toHaveBeenCalledTimes(1));
+
+    // Gagal → user masih di tracking, sesi tidak dihapus (tidak menyesatkan)
+    expect(await screen.findByText("Status pesanan")).toBeInTheDocument();
+    expect(
+      localStorage.getItem("kantin-active-order-warung-bu-siti"),
+    ).not.toBeNull();
+    expect(toast.error).toHaveBeenCalledWith(
+      "Pesanan sudah diproses penjual dan tidak bisa dibatalkan",
+    );
+    // Riwayat tetap pending — tidak ditandai batal padahal server menolak
+    const stored = JSON.parse(localStorage.getItem("kantin-history")!);
+    expect(stored[0].status).toBe("pending");
   });
 });
 

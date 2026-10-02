@@ -502,17 +502,53 @@ async def main() -> int:
                 await p1.get_by_text("Status pesanan").wait_for()
 
             async def a13() -> None:
+                """Opsi A (cancel persist): 'Tidak' batal dulu, lalu 'Ya'.
+
+                'Ya' → POST /cancel dipanggil → keluar dari tracking, sesi
+                localStorage dibuang, dan riwayat lokal menampilkan
+                "Dibatalkan" (status ikut persist di server).
+                """
                 st["cur"], st["folder"] = p1, "mobile"
                 await p1.get_by_text("Batalkan pesanan").click()
                 await p1.get_by_text("Yakin membatalkan pesanan?").wait_for()
                 await shot(p1, "mobile", "25-cancel-confirm.png", full_page=False)
+
+                # "Tidak" → konfirmasi dibatalkan, TIDAK ada API, tetap tracking
                 await p1.get_by_role("button", name="Tidak", exact=True).click()
                 await p1.get_by_text("Yakin membatalkan pesanan?").wait_for(state="detached")
-                ck(await p1.get_by_text("Status pesanan").count() == 1, "keluar dari tracking setelah batal")
+                ck(
+                    await p1.get_by_text("Status pesanan").count() == 1,
+                    "'Tidak' seharusnya tetap di tracking",
+                )
+
+                # "Ya" → pembatalan dikirim ke server, lalu sesi dibuang
+                await p1.get_by_text("Batalkan pesanan").click()
+                await p1.get_by_text("Yakin membatalkan pesanan?").wait_for()
+                await p1.get_by_role("button", name="Ya", exact=True).click()
+                await p1.get_by_text("Status pesanan").wait_for(state="detached", timeout=15000)
+                key = await p1.evaluate(f"localStorage.getItem('kantin-active-order-{SLUG}')")
+                ck(not key, f"sesi order masih ada setelah batal: {key}")
+                ck(
+                    await p1.get_by_text("Pesanan aktif").count() == 0,
+                    "bar Pesanan aktif masih tampil setelah batal",
+                )
+
+                # Riwayat lokal langsung menampilkan label "Dibatalkan"
+                await p1.get_by_text("Riwayat pesanan").wait_for(timeout=15000)
+                hist = p1.get_by_text("Riwayat pesanan").locator(
+                    "xpath=ancestor::div[contains(@class,'rounded-xl')][1]"
+                )
+                ck(
+                    await hist.get_by_text("Dibatalkan", exact=True).count() >= 1,
+                    "riwayat tidak menampilkan 'Dibatalkan' setelah batal",
+                )
 
             async def a14() -> None:
                 st["cur"], st["folder"] = p1, "mobile"
-                await p1.get_by_text("← Kembali ke menu").click()
+                # A13 sudah membatalkan → posisi sudah di menu. Keluar dulu
+                # hanya bila ternyata masih berada di layar tracking.
+                if await p1.get_by_text("← Kembali ke menu").count() > 0:
+                    await p1.get_by_text("← Kembali ke menu").click()
                 await p1.get_by_text("Riwayat pesanan").wait_for()
                 rows = p1.locator('div[class*="divide-y"] > *')
                 n = await rows.count()
@@ -672,6 +708,25 @@ async def main() -> int:
                 await sp.get_by_text(NAME_M).first.wait_for(timeout=15000)
                 ck(await sp.get_by_text(NAME_D).count() > 0, "order E2E Desktop tidak muncul di dashboard seller")
                 ck(await sp.get_by_text("Total hari ini").count() > 0, "kartu statistik tidak ada")
+
+                # Opsi A: order yang dibatalkan pelanggan (A13) tampil di
+                # section terpisah "Dibatalkan (n)" — TANPA tombol aksi —
+                # dan KELUAR dari papan kerja aktif.
+                sect_p = sp.get_by_text(re.compile(r"^Dibatalkan \(\d+\)$")).first
+                await sect_p.wait_for(timeout=15000)
+                sect = sect_p.locator("xpath=..")
+                ck(
+                    await sect.get_by_text(NAME_M).count() >= 1,
+                    "order batal tidak ada di section Dibatalkan",
+                )
+                ck(
+                    await sect.locator("button").count() == 0,
+                    "section Dibatalkan seharusnya tanpa tombol aksi",
+                )
+                ck(
+                    await sp.locator(CARD_ACTIVE).filter(has_text=NAME_M).count() == 0,
+                    "order batal masih berada di papan pesanan aktif",
+                )
                 await shot(sp, "mobile", "13-dashboard-orders.png")
 
             async def b03() -> None:

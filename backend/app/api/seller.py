@@ -288,6 +288,14 @@ def update_order_status(
     if not order:
         raise HTTPException(status_code=404, detail="Order tidak ditemukan")
 
+    # Status terminal: order yang dibatalkan pelanggan tidak boleh
+    # "dihidupkan" lagi atau diubah statusnya oleh seller.
+    if order.status == OrderStatus.cancelled:
+        raise HTTPException(
+            status_code=409,
+            detail="Order sudah dibatalkan pelanggan dan tidak bisa diubah statusnya",
+        )
+
     order.status = new_status
     db.commit()
     return {"message": "Status diupdate", "status": new_status}
