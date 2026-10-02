@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
-from app.core.ratelimit import limiter
+from app.core.ratelimit import limiter, menu_rate_limit, order_rate_limit
 from app.models.restaurant import Restaurant
 from app.models.menu import MenuItem
 from app.models.order import Order, OrderItem, OrderSource
@@ -28,7 +28,7 @@ def get_restaurant(slug: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{slug}/menu", response_model=List[MenuItemResponse])
-@limiter.limit("20/minute")
+@limiter.limit(menu_rate_limit)
 def get_restaurant_menu(
     request: Request,
     slug: str,
@@ -56,7 +56,7 @@ def get_restaurant_menu(
 
 
 @router.post("/{slug}/orders", response_model=OrderResponse)
-@limiter.limit("10/minute")
+@limiter.limit(order_rate_limit)
 def create_order(
     request: Request,
     slug: str,

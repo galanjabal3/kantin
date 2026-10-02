@@ -55,38 +55,73 @@ def create_refresh_token(
 def rotate_refresh_token(db: Session, raw_token: str) -> Optional[Dict[str, str]]:
     """Validasi refresh token lama → tandai used → terbitkan token baru.
 
-    Mengembalikan dict ``{"refresh_token", "claims"}`` bila sukses, atau
+    Penanda "used" diklaim lewat SATU ``UPDATE`` atomik berbasis ``WHERE``
+    (``token_hash = :x AND used_at IS NULL AND revoked_at IS NULL``), sehingga
+    dari dua request refresh bersamaan hanya SATU yang ``rowcount``-nya 1 (B6).
+    Dulu: query dulu → cek ``used_at``/``revoked_at`` di Python → update; dua
+    request bisa sama-sama lolos dan melahirkan dua token hidup dari satu token.
+
+    Mengembalikan dict ``{"refresh_token", "claims"}`` bila menang klaim, atau
     ``None`` bila token tidak dikenal, kedaluwarsa, sudah dipakai ulang
     (reuse detection → seluruh keluarga dicabut), maupun sudah dicabut.
     """
     if not raw_token:
         return None
 
-    row = (
-        db.query(RefreshToken)
-        .filter(RefreshToken.token_hash == hash_refresh_token(raw_token))
-        .first()
-    )
-    if row is None:
-        return None
-
+    token_hash = hash_refresh_token(raw_token)
     now = datetime.now(timezone.utc)
 
-    if row.revoked_at is not None:
+    # 1) Klaim atomik — guard-nya ada di SQL, jadi database yang menentukan
+    #    pemenangnya (bukan pembacaan-lalu-tulis yang bisa tumpang tindih).
+    #    Langsung di-commit supaya klaim permanen sebelum token baru diterbitkan:
+    #    bila langkah berikutnya gagal, token lama tetap hangus (fail-closed).
+    claimed = (
+        db.query(RefreshToken)
+        .filter(
+            RefreshToken.token_hash == token_hash,
+            RefreshToken.used_at.is_(None),
+            RefreshToken.revoked_at.is_(None),
+        )
+        .update({RefreshToken.used_at: now}, synchronize_session=False)
+    )
+    db.commit()
+
+    if claimed != 1:
+        # 2) Kalah klaim → baca barisnya untuk menentukan penyebab (respons
+        #    endpoint /refresh tidak berubah: selalu 401 dengan pesan sama).
+        row = (
+            db.query(RefreshToken)
+            .filter(RefreshToken.token_hash == token_hash)
+            .first()
+        )
+        if row is None:
+            return None
+
+        # Urutan pemeriksaan sama seperti sebelum B6: revoked dulu, baru used.
+        if row.revoked_at is not None:
+            return None
+
+        # Reuse detection: token lama dipakai ulang setelah dirotasi → seluruh
+        # keluarga token dicabut, klien wajib login ulang.
+        if row.used_at is not None:
+            (
+                db.query(RefreshToken)
+                .filter(
+                    RefreshToken.family_id == row.family_id,
+                    RefreshToken.revoked_at.is_(None),
+                )
+                .update({RefreshToken.revoked_at: now}, synchronize_session=False)
+            )
+            db.commit()
+            return None
+
         return None
 
-    # Reuse detection: token lama dipakai lagi setelah dirotasi → seluruh
-    # keluarga token dicabut, klien wajib login ulang.
-    if row.used_at is not None:
-        (
-            db.query(RefreshToken)
-            .filter(
-                RefreshToken.family_id == row.family_id,
-                RefreshToken.revoked_at.is_(None),
-            )
-            .update({RefreshToken.revoked_at: now}, synchronize_session=False)
-        )
-        db.commit()
+    # 3) Menang klaim → baris milik kita; ambil datanya untuk claims & TTL.
+    row = (
+        db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
+    )
+    if row is None:  # praktis mustahil — barisnya baru saja kita klaim
         return None
 
     if _aware(row.expires_at) <= now:
@@ -103,7 +138,6 @@ def rotate_refresh_token(db: Session, raw_token: str) -> Optional[Dict[str, str]
     if row.restaurant_id:
         claims["restaurant_id"] = row.restaurant_id
 
-    row.used_at = now
     new_raw_token = create_refresh_token(
         db,
         user_id=row.user_id,

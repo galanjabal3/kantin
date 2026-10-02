@@ -7,6 +7,7 @@ from app.core.ratelimit import (
     limiter,
     clear_login_failures,
     login_email_throttled,
+    login_rate_limit,
     register_login_failure,
 )
 from app.core.security import verify_password, create_access_token, hash_password
@@ -44,7 +45,7 @@ def _issue_token_pair(
 
 
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("5/minute")
+@limiter.limit(login_rate_limit)
 def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)):
     """Login for seller and admin.
 

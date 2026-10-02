@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = ""
     ADMIN_PASSWORD: str = ""
 
+    # Rate limit per endpoint (slowapi), format string yang dikenali
+    # limits.parse_many, mis. "60/minute". Bisa dioverride lewat env var
+    # yang sama namanya (A4) — demo publik tidak mudah kena 429.
+    # CATATAN: RATE_LIMIT_LOGIN sengaja TIDAK dinaikkan (keamanan).
+    RATE_LIMIT_MENU: str = "60/minute"
+    RATE_LIMIT_ORDER: str = "30/minute"
+    RATE_LIMIT_LOGIN: str = "5/minute"
+
     # Parse origins as list when accessed
     @property
     def origins_list(self) -> List[str]:

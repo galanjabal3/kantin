@@ -4,9 +4,34 @@ import time
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from app.core.config import settings
+
 # Satu instance dipakai bersama oleh main.py (app.state.limiter) dan router
 # (dekorator @limiter.limit). key_func → limit per IP klien.
 limiter = Limiter(key_func=get_remote_address)
+
+
+# ── Provider limit dari settings (A4) ────────────────────────
+# slowapi menerima callable selain string (StrOrCallableStr): nilai dipanggil
+# SAAT request dicek (dynamic limit), bukan saat dekorator dievaluasi saat
+# import. Karena itu env var / override settings tetap terbaca walau route
+# sudah ter-binding di awal — dan tetap terbaca dari pola pydantic-settings
+# di app/core/config.py (bukan os.getenv baru).
+
+
+def menu_rate_limit() -> str:
+    """Limit membaca menu per-IP (default ``60/minute``)."""
+    return settings.RATE_LIMIT_MENU
+
+
+def order_rate_limit() -> str:
+    """Limit membuat order per-IP (default ``30/minute``)."""
+    return settings.RATE_LIMIT_ORDER
+
+
+def login_rate_limit() -> str:
+    """Limit login per-IP (default ``5/minute`` — tidak dinaikkan)."""
+    return settings.RATE_LIMIT_LOGIN
 
 
 # ── Throttle login per-email (B14) ─────────────────────────────
