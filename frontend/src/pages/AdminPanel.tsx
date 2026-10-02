@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogOut } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
-import { getAllRestaurants, createRestaurant } from "../lib/api";
+import {
+  getAllRestaurants,
+  createRestaurant,
+  updateRestaurant,
+} from "../lib/api";
 import { errorMessage } from "../lib/errorMessage";
 import toast from "react-hot-toast";
 
@@ -16,6 +20,49 @@ interface Restaurant {
   is_open: boolean;
 }
 
+// Toggle buka/tutup resto (is_open). Kontras non-teks: track hijau-600 /
+// abu-500 terhadap kartu putih ≥ 3:1, knob putih terhadap track ≥ 3:1;
+// label teks hijau-700 (5.02:1) / merah-600 (4.83:1) ≥ 4.5:1.
+function OpenToggle({
+  restaurant,
+  busy,
+  onToggle,
+}: {
+  restaurant: Restaurant;
+  busy: boolean;
+  onToggle: (r: Restaurant) => void;
+}) {
+  const open = restaurant.is_open;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={open}
+      aria-label={`Buka/tutup ${restaurant.name}`}
+      disabled={busy}
+      onClick={() => onToggle(restaurant)}
+      className="flex items-center gap-2 shrink-0"
+    >
+      <span
+        className={`text-xs font-medium ${open ? "text-green-700" : "text-red-600"}`}
+      >
+        {open ? "Buka" : "Tutup"}
+      </span>
+      <span
+        className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors ${
+          open ? "bg-green-600" : "bg-gray-500"
+        } ${busy ? "opacity-50" : ""}`}
+      >
+        <span
+          className={`inline-block w-4 h-4 bg-white rounded-full transition-transform ${
+            open ? "translate-x-6" : "translate-x-1"
+          }`}
+        />
+      </span>
+    </button>
+  );
+}
+
 export default function AdminPanel() {
   const navigate = useNavigate();
   const { token, userType, clearAuth } = useAuthStore();
@@ -24,6 +71,8 @@ export default function AdminPanel() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // id resto yang sedang di-toggle — mencegah klik ganda saat request jalan
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const [form, setForm] = useState({
@@ -81,12 +130,34 @@ export default function AdminPanel() {
     navigate("/login");
   };
 
+  // Toggle buka/tutup resto — optimistik: status langsung berubah di UI,
+  // kalau PUT gagal dikembalikan seperti semula + toast error.
+  const handleToggleOpen = async (r: Restaurant) => {
+    if (togglingId) return;
+    const next = !r.is_open;
+    setTogglingId(r.id);
+    setRestaurants((prev) =>
+      prev.map((x) => (x.id === r.id ? { ...x, is_open: next } : x)),
+    );
+    try {
+      await updateRestaurant(token!, r.id, { is_open: next });
+      toast.success(next ? `${r.name} dibuka` : `${r.name} ditutup`);
+    } catch (err) {
+      setRestaurants((prev) =>
+        prev.map((x) => (x.id === r.id ? { ...x, is_open: !next } : x)),
+      );
+      toast.error(errorMessage(err, "Gagal mengubah status restoran"));
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-brand-700 rounded-lg flex items-center justify-center">
             {/* <span className="text-white text-sm font-bold">K</span> */}
             <img src="/logo.svg" alt="Kantin" className="w-8 h-8" />
           </div>
@@ -276,6 +347,14 @@ export default function AdminPanel() {
                       {r.mode === "full" ? "Full app" : "Kasir only"}
                     </span>
                   </div>
+                  <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-gray-50">
+                    <span className="text-xs text-gray-500">Buka/tutup</span>
+                    <OpenToggle
+                      restaurant={r}
+                      busy={togglingId === r.id}
+                      onToggle={handleToggleOpen}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
@@ -296,6 +375,9 @@ export default function AdminPanel() {
                   </th>
                   <th className="text-left text-xs text-gray-500 font-medium px-6 py-3">
                     Status
+                  </th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-6 py-3">
+                    Buka/tutup
                   </th>
                 </tr>
               </thead>
@@ -341,6 +423,13 @@ export default function AdminPanel() {
                       >
                         {r.is_active ? "Aktif" : "Nonaktif"}
                       </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <OpenToggle
+                        restaurant={r}
+                        busy={togglingId === r.id}
+                        onToggle={handleToggleOpen}
+                      />
                     </td>
                   </tr>
                 ))}

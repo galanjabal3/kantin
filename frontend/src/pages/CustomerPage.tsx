@@ -99,6 +99,60 @@ function readJSON<T>(key: string, fallback: T): T {
   }
 }
 
+interface HistoryEntry {
+  id: string;
+  restaurant?: string;
+  slug?: string;
+  total?: number;
+  status?: string;
+  created_at?: string;
+}
+
+// Riwayat pesanan dari localStorage `kantin-history` (maks 20 entri) —
+// HANYA entri milik slug ini yang dibaca, supaya riwayat resto lain tidak
+// bocor ke halaman ini. Murni baca (tidak memutasi storage): kunci korup /
+// bukan array → dianggap kosong, section riwayat disembunyikan tanpa error.
+function readHistoryForSlug(slug?: string): HistoryEntry[] {
+  if (!slug) return [];
+  let stored: unknown;
+  try {
+    const raw = localStorage.getItem("kantin-history");
+    if (!raw) return [];
+    stored = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(stored)) return [];
+  return stored.filter(
+    (entry): entry is HistoryEntry =>
+      typeof entry === "object" &&
+      entry !== null &&
+      (entry as HistoryEntry).slug === slug &&
+      typeof (entry as HistoryEntry).id === "string",
+  );
+}
+
+// Label status riwayat dari sumber mapping yang sama dengan tracking
+// (STATUS_INFO), tapi tanpa fallback "Memperbarui status" — riwayat itu
+// statis, bukan sesi yang dipolling.
+function getHistoryStatus(status?: string): { label: string; color: string } {
+  const info = status ? STATUS_INFO[status] : undefined;
+  if (info) return { label: info.label, color: info.color };
+  return { label: status || "Tidak diketahui", color: "text-gray-500" };
+}
+
+// Tanggal singkat ala Indonesia, mis. "15 Jun 2026"
+function formatHistoryDate(value?: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
 // Sesi order aktif masih layak dipakai kalau kunci ada, ada ordernya,
 // dan dibuat dalam 2 jam terakhir (sama aturan dengan restore saat mount).
 function isActiveOrderFresh(key: string): boolean {
@@ -437,6 +491,10 @@ export default function CustomerPage() {
     !!activeOrderKey &&
     isActiveOrderFresh(activeOrderKey);
 
+  // Riwayat pesanan untuk slug INI — dibaca ulang tiap render supaya entri
+  // baru hasil checkout langsung muncul saat user kembali ke menu.
+  const historyEntries = readHistoryForSlug(slug);
+
   if (loading)
     return (
       <div className="min-h-screen bg-gray-50">
@@ -683,7 +741,7 @@ export default function CustomerPage() {
               {!confirmingCancel ? (
                 <button
                   onClick={() => setConfirmingCancel(true)}
-                  className="text-xs text-gray-400 hover:text-red-600 underline transition-colors"
+                  className="text-xs text-gray-500 hover:text-red-600 underline transition-colors"
                 >
                   Batalkan pesanan
                 </button>
@@ -1006,6 +1064,62 @@ export default function CustomerPage() {
                   </div>
                 );
               })
+            )}
+
+            {/* Riwayat pesanan (localStorage, difilter per slug). Baris yang
+                id-nya sama dengan order aktif bisa diklik → kembali ke
+                tracking; order lain read-only (tidak ada endpoint fetch
+                status order lama tanpa sesi). */}
+            {historyEntries.length > 0 && (
+              <div className="bg-white border border-gray-100 rounded-xl p-4">
+                <h2 className="text-xs font-semibold text-gray-900 mb-1">
+                  Riwayat pesanan
+                </h2>
+                <div className="flex flex-col divide-y divide-gray-100">
+                  {historyEntries.map((entry) => {
+                    const info = getHistoryStatus(entry.status);
+                    const isActiveOrder = !!orderId && entry.id === orderId;
+                    const row = (
+                      <div className="flex items-center justify-between gap-3 py-2.5">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-gray-900 truncate">
+                            {entry.restaurant || restaurant.name}
+                          </p>
+                          <p className="text-[11px] text-gray-500 mt-0.5">
+                            {formatHistoryDate(entry.created_at)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span
+                            className={`text-[11px] font-medium ${info.color}`}
+                          >
+                            {info.label}
+                          </span>
+                          <span className="text-xs font-medium text-gray-900 tabular-nums">
+                            {typeof entry.total === "number"
+                              ? formatPrice(entry.total)
+                              : ""}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                    return isActiveOrder ? (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        onClick={() => setStep("tracking")}
+                        className="w-full text-left rounded-lg transition-colors hover:bg-gray-50"
+                      >
+                        {row}
+                      </button>
+                    ) : (
+                      <div key={entry.id} className="w-full">
+                        {row}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
 

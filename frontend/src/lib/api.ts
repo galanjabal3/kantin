@@ -383,3 +383,19 @@ export async function createRestaurant(token: string, data: object) {
   if (!res.ok) throw new Error("Gagal membuat restoran");
   return res.json();
 }
+
+// Update sebagian field restoran (backend memakai `exclude_none`,
+// jadi payload parsial seperti { is_open: false } aman).
+export async function updateRestaurant(
+  token: string,
+  id: string,
+  data: object,
+) {
+  const res = await authFetch(`${BASE_URL}/api/admin/restaurants/${id}`, {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Gagal mengupdate restoran");
+  return res.json();
+}

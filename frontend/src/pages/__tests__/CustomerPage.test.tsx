@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import CustomerPage from "../CustomerPage";
 import { useCartStore } from "../../store/cartStore";
@@ -407,5 +407,118 @@ describe("S3 — bar pesanan aktif tidak tampil untuk order selesai", () => {
     expect(
       screen.queryByRole("button", { name: /Lihat status/ }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("A3 — riwayat pesanan (localStorage kantin-history)", () => {
+  it("riwayat kosong → section tidak tampil", async () => {
+    renderPage();
+
+    expect(await screen.findByText("Semua")).toBeInTheDocument();
+    expect(screen.queryByText("Riwayat pesanan")).not.toBeInTheDocument();
+  });
+
+  it("riwayat korup → section tidak tampil (bukan error)", async () => {
+    localStorage.setItem("kantin-history", "korup bukan json");
+
+    renderPage();
+
+    expect(await screen.findByText("Semua")).toBeInTheDocument();
+    expect(screen.queryByText("Riwayat pesanan")).not.toBeInTheDocument();
+  });
+
+  it("riwayat resto lain tidak ikut tampil (filter per slug)", async () => {
+    localStorage.setItem(
+      "kantin-history",
+      JSON.stringify([
+        {
+          id: "ORD-LAIN",
+          restaurant: "Resto Lain",
+          slug: "resto-lain",
+          total: 20000,
+          status: "done",
+          created_at: "2026-05-01T12:00:00Z",
+        },
+      ]),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Semua")).toBeInTheDocument();
+    expect(screen.queryByText("Riwayat pesanan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Resto Lain")).not.toBeInTheDocument();
+  });
+
+  it("tampil setelah checkout: nama resto, tanggal, total, label status", async () => {
+    useCartStore.setState({
+      items: [{ id: "m1", name: "Nasi Gudeg", price: 15000, quantity: 1 }],
+      slug: "warung-bu-siti",
+    });
+    mockedApi.createOrder.mockResolvedValue({
+      id: "ORD-20",
+      status: "pending",
+      total_price: 15000,
+      created_at: "2026-06-15T12:00:00Z",
+    });
+
+    renderPage();
+    await checkoutAs("Budi");
+
+    expect(await screen.findByText("Status pesanan")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Kembali ke menu/ }));
+
+    const card = (await screen.findByText("Riwayat pesanan")).parentElement!;
+    expect(within(card).getByText("Warung Bu Siti")).toBeInTheDocument();
+    expect(within(card).getByText("15 Jun 2026")).toBeInTheDocument();
+    expect(within(card).getByText("Menunggu konfirmasi")).toBeInTheDocument();
+    expect(within(card).getByText(/15\.000/)).toBeInTheDocument();
+    // Data tersimpan di localStorage oleh appendHistory
+    expect(JSON.parse(localStorage.getItem("kantin-history")!)).toHaveLength(1);
+  });
+
+  it("hanya baris order aktif yang bisa diklik → tracking", async () => {
+    localStorage.setItem(
+      "kantin-history",
+      JSON.stringify([
+        {
+          id: "ORD-HIDUP",
+          restaurant: "Warung Bu Siti",
+          slug: "warung-bu-siti",
+          total: 15000,
+          status: "preparing",
+          created_at: "2026-06-15T12:00:00Z",
+        },
+        {
+          id: "ORD-LAMA",
+          restaurant: "Warung Bu Siti",
+          slug: "warung-bu-siti",
+          total: 12000,
+          status: "done",
+          created_at: "2026-05-01T12:00:00Z",
+        },
+      ]),
+    );
+    localStorage.setItem(
+      "kantin-active-order-warung-bu-siti",
+      JSON.stringify({
+        orderId: "ORD-HIDUP",
+        status: "preparing",
+        timestamp: Date.now(),
+      }),
+    );
+    mockedApi.getOrderStatus.mockResolvedValue({ status: "preparing" });
+
+    renderPage();
+
+    // Sesi dipulihkan → langsung di tracking; keluar dulu ke menu
+    fireEvent.click(await screen.findByRole("button", { name: /Kembali ke menu/ }));
+
+    const card = (await screen.findByText("Riwayat pesanan")).parentElement!;
+    const rowButtons = within(card).getAllByRole("button");
+    // 2 baris riwayat, hanya yang id-nya == orderId aktif yang interaktif
+    expect(rowButtons).toHaveLength(1);
+
+    fireEvent.click(rowButtons[0]);
+    expect(await screen.findByText("Status pesanan")).toBeInTheDocument();
   });
 });
